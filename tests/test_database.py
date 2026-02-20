@@ -48,7 +48,7 @@ class TestSchemaIdempotency:
         tables1 = db.init_tables()
         tables2 = db.init_tables()
         assert tables1 == tables2
-        assert len(tables1) == 6  # 6テーブル
+        assert len(tables1) == 7  # 7テーブル（sync_log追加）
 
     def test_seed_data_idempotent(self, db):
         """シードデータを2回投入しても重複しない"""

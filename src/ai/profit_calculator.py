@@ -2,6 +2,7 @@
 
 送料推定・利益計算・推奨価格逆算を提供。
 KBの計算例（手ぬぐい$15/包丁$100）と一致するよう設計。
+プラットフォーム別手数料（eBay/Etsy）に対応。
 """
 
 from typing import Dict, Optional
@@ -21,6 +22,28 @@ SHIPPING_TABLE = [
 # --- eBay手数料 ---
 EBAY_FVF_RATE = 0.1325       # Final Value Fee 13.25%
 EBAY_PAYMENT_FEE_USD = 0.30  # 決済手数料（固定）
+
+# --- Etsy手数料 ---
+ETSY_LISTING_FEE_USD = 0.20        # リスティング手数料 $0.20/件
+ETSY_TRANSACTION_FEE_RATE = 0.065  # トランザクション手数料 6.5%
+ETSY_PAYMENT_FEE_RATE = 0.03       # 決済手数料 3%
+ETSY_PAYMENT_FEE_FIXED_USD = 0.25  # 決済手数料（固定）$0.25
+
+# プラットフォーム別手数料設定
+PLATFORM_FEES = {
+    "ebay": {
+        "fvf_rate": EBAY_FVF_RATE,
+        "payment_fee_fixed": EBAY_PAYMENT_FEE_USD,
+        "payment_fee_rate": 0.0,
+        "listing_fee": 0.0,
+    },
+    "etsy": {
+        "fvf_rate": ETSY_TRANSACTION_FEE_RATE,
+        "payment_fee_fixed": ETSY_PAYMENT_FEE_FIXED_USD,
+        "payment_fee_rate": ETSY_PAYMENT_FEE_RATE,
+        "listing_fee": ETSY_LISTING_FEE_USD,
+    },
+}
 
 
 def estimate_shipping(weight_g: Optional[int]) -> Dict:
@@ -61,6 +84,7 @@ def calculate_profit(
     sale_usd: float,
     weight_g: Optional[int] = None,
     shipping_override_usd: Optional[float] = None,
+    platform: str = "ebay",
 ) -> Dict:
     """利益を計算
 
@@ -69,6 +93,7 @@ def calculate_profit(
         sale_usd: 販売価格（USD）
         weight_g: 重量（g）。送料推定に使用
         shipping_override_usd: 送料を手動指定する場合
+        platform: プラットフォーム（"ebay" or "etsy"）。デフォルト"ebay"
 
     Returns:
         {
@@ -76,14 +101,18 @@ def calculate_profit(
             "wholesale_usd": float,
             "wholesale_jpy": int,
             "shipping": dict,
-            "ebay_fvf_usd": float,
-            "ebay_payment_usd": float,
+            "platform": str,
+            "ebay_fvf_usd": float,       # (後方互換)
+            "ebay_payment_usd": float,    # (後方互換)
+            "platform_fees_usd": float,   # プラットフォーム手数料合計
             "total_cost_usd": float,
             "profit_usd": float,
             "profit_margin": float,  # 0-1
             "profitable": bool,      # 利益率 > 25%
         }
     """
+    fees = PLATFORM_FEES.get(platform, PLATFORM_FEES["ebay"])
+
     # 卸値のUSD換算
     wholesale_usd = round(wholesale_jpy / USD_JPY_RATE, 2)
 
@@ -91,12 +120,15 @@ def calculate_profit(
     shipping = estimate_shipping(weight_g)
     shipping_usd = shipping_override_usd if shipping_override_usd is not None else shipping["cost_usd"]
 
-    # eBay手数料
-    ebay_fvf = round(sale_usd * EBAY_FVF_RATE, 2)
-    ebay_payment = EBAY_PAYMENT_FEE_USD
+    # プラットフォーム手数料
+    fvf = round(sale_usd * fees["fvf_rate"], 2)
+    payment_fixed = fees["payment_fee_fixed"]
+    payment_variable = round(sale_usd * fees["payment_fee_rate"], 2)
+    listing_fee = fees["listing_fee"]
+    platform_fees = round(fvf + payment_fixed + payment_variable + listing_fee, 2)
 
     # 合計コスト
-    total_cost = round(wholesale_usd + shipping_usd + ebay_fvf + ebay_payment, 2)
+    total_cost = round(wholesale_usd + shipping_usd + platform_fees, 2)
 
     # 利益
     profit = round(sale_usd - total_cost, 2)
@@ -108,8 +140,11 @@ def calculate_profit(
         "wholesale_jpy": wholesale_jpy,
         "shipping": shipping,
         "shipping_usd": shipping_usd,
-        "ebay_fvf_usd": ebay_fvf,
-        "ebay_payment_usd": ebay_payment,
+        "platform": platform,
+        # 後方互換性: eBayの場合は従来のキーも維持
+        "ebay_fvf_usd": fvf,
+        "ebay_payment_usd": payment_fixed,
+        "platform_fees_usd": platform_fees,
         "total_cost_usd": total_cost,
         "profit_usd": profit,
         "profit_margin": margin,
@@ -121,42 +156,43 @@ def suggest_price(
     wholesale_jpy: int,
     weight_g: Optional[int] = None,
     target_margin: float = 0.30,
+    platform: str = "ebay",
 ) -> Dict:
     """目標利益率から推奨販売価格を逆算
-
-    price = (wholesale_usd + shipping_usd + payment_fee) / (1 - fvf_rate - target_margin)
 
     Args:
         wholesale_jpy: 卸値（円）
         weight_g: 重量（g）
         target_margin: 目標利益率（デフォルト30%）
+        platform: プラットフォーム（"ebay" or "etsy"）
 
     Returns:
         {"suggested_price_usd": float, "breakdown": dict}
     """
+    fees = PLATFORM_FEES.get(platform, PLATFORM_FEES["ebay"])
     wholesale_usd = wholesale_jpy / USD_JPY_RATE
     shipping = estimate_shipping(weight_g)
     shipping_usd = shipping["cost_usd"]
 
-    # price * (1 - fvf_rate - target_margin) = wholesale + shipping + payment
-    # price = (wholesale + shipping + payment) / (1 - fvf_rate - target_margin)
-    denominator = 1.0 - EBAY_FVF_RATE - target_margin
+    # price * (1 - fvf_rate - payment_fee_rate - target_margin)
+    #   = wholesale + shipping + payment_fixed + listing_fee
+    total_rate = fees["fvf_rate"] + fees["payment_fee_rate"]
+    denominator = 1.0 - total_rate - target_margin
     if denominator <= 0:
-        # 目標利益率が高すぎる場合
         return {
             "suggested_price_usd": None,
-            "error": "目標利益率が高すぎます（FVF + margin >= 100%）",
+            "error": "目標利益率が高すぎます（手数料率 + margin >= 100%）",
         }
 
-    suggested = round(
-        (wholesale_usd + shipping_usd + EBAY_PAYMENT_FEE_USD) / denominator, 2
-    )
+    fixed_costs = wholesale_usd + shipping_usd + fees["payment_fee_fixed"] + fees["listing_fee"]
+    suggested = round(fixed_costs / denominator, 2)
 
     # 検算
-    breakdown = calculate_profit(wholesale_jpy, suggested, weight_g)
+    breakdown = calculate_profit(wholesale_jpy, suggested, weight_g, platform=platform)
 
     return {
         "suggested_price_usd": suggested,
         "target_margin": target_margin,
+        "platform": platform,
         "breakdown": breakdown,
     }

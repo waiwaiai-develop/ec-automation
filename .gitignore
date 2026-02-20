@@ -28,3 +28,5 @@ data/*.db-journal
 
 # Config secrets
 config/.env
+config/tokens/
+config/google_sa.json

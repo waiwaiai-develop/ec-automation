@@ -8,8 +8,18 @@
     python -m src.cli.main research keywords -k "japanese tenugui" --sandbox
     python -m src.cli.main product list
     python -m src.cli.main product check --id 1
-    python -m src.cli.main product profit --id 1 --price 15.00
+    python -m src.cli.main product profit --id 1 --price 15.00 [--platform etsy]
     python -m src.cli.main product describe --id 1
+    python -m src.cli.main platform list-ebay --id 1 --price 18.00
+    python -m src.cli.main platform list-etsy --id 1 --price 18.00
+    python -m src.cli.main platform listings [--platform ebay]
+    python -m src.cli.main sync inventory
+    python -m src.cli.main sync orders
+    python -m src.cli.main notify test
+    python -m src.cli.main notify daily
+    python -m src.cli.main auth setup --platform ebay [--sandbox]
+    python -m src.cli.main auth status --platform ebay
+    python -m src.cli.main dashboard update
 """
 
 import asyncio
@@ -413,7 +423,9 @@ def product_check(product_id, check_all):
 @product.command("profit")
 @click.option("--id", "product_id", type=int, required=True, help="商品ID")
 @click.option("--price", "sale_price", type=float, required=True, help="販売価格（USD）")
-def product_profit(product_id, sale_price):
+@click.option("--platform", "platform_name", default="ebay",
+              type=click.Choice(["ebay", "etsy"]), help="プラットフォーム（デフォルト: ebay）")
+def product_profit(product_id, sale_price, platform_name):
     """利益計算"""
     from src.ai.profit_calculator import calculate_profit, suggest_price
 
@@ -433,10 +445,11 @@ def product_profit(product_id, sale_price):
         wholesale_jpy=p["wholesale_price_jpy"],
         sale_usd=sale_price,
         weight_g=p.get("weight_g"),
+        platform=platform_name,
     )
 
     # 結果表示
-    table = Table(title="利益計算 (${:.2f} 販売時)".format(sale_price))
+    table = Table(title="利益計算 (${:.2f} 販売時 / {})".format(sale_price, platform_name))
     table.add_column("項目", style="cyan")
     table.add_column("金額", justify="right")
 
@@ -449,8 +462,7 @@ def product_profit(product_id, sale_price):
         "国際送料 ({})".format(result["shipping"]["method"]),
         "${:.2f}".format(result["shipping_usd"]),
     )
-    table.add_row("eBay FVF (13.25%)", "${:.2f}".format(result["ebay_fvf_usd"]))
-    table.add_row("決済手数料", "${:.2f}".format(result["ebay_payment_usd"]))
+    table.add_row("プラットフォーム手数料", "${:.2f}".format(result["platform_fees_usd"]))
     table.add_row("[bold]合計コスト[/bold]", "[bold]${:.2f}[/bold]".format(result["total_cost_usd"]))
     table.add_row("[bold]利益[/bold]", "[bold]${:.2f}[/bold]".format(result["profit_usd"]))
 
@@ -465,10 +477,10 @@ def product_profit(product_id, sale_price):
 
     if not result["profitable"]:
         console.print("[red]利益率が25%未満です。出品非推奨。[/red]")
-        # 推奨価格を提示
         suggestion = suggest_price(
             wholesale_jpy=p["wholesale_price_jpy"],
             weight_g=p.get("weight_g"),
+            platform=platform_name,
         )
         if suggestion.get("suggested_price_usd"):
             console.print(
@@ -537,6 +549,478 @@ def product_describe(product_id, model_name, save):
         console.print("\n[green]DB に保存しました。[/green]")
 
     console.print("\n[green]完了[/green]")
+
+
+# --- platform コマンド ---
+
+@cli.group()
+def platform():
+    """プラットフォーム出品管理（eBay/Etsy/BASE）"""
+    pass
+
+
+@platform.command("list-ebay")
+@click.option("--id", "product_id", type=int, required=True, help="商品ID")
+@click.option("--price", "price_usd", type=float, required=True, help="販売価格（USD）")
+@click.option("--category-id", default=None, help="eBayカテゴリID")
+@click.option("--sandbox/--production", default=True, help="sandbox/本番切替")
+def platform_list_ebay(product_id, price_usd, category_id, sandbox):
+    """eBayに出品"""
+    from src.ai.ban_filter import check_ban_risk
+    from src.ai.description_generator import generate_full_listing
+    from src.platforms.ebay import EbayClient
+
+    database = Database()
+    p = database.get_product(product_id)
+    if not p:
+        console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
+        return
+
+    # BANチェック
+    ban_result = check_ban_risk(p, database)
+    if not ban_result["safe"]:
+        console.print("[red]BANリスクあり。出品中止。[/red]")
+        for issue in ban_result["issues"]:
+            console.print("  [yellow]- {}[/yellow]".format(issue["detail"]))
+        return
+
+    console.print("[bold]商品:[/bold] {}".format(p["name_ja"][:50]))
+
+    # AI説明生成
+    console.print("[dim]AI説明生成中...[/dim]")
+    try:
+        listing_content = generate_full_listing(p)
+    except Exception as e:
+        console.print("[red]AI生成エラー: {}[/red]".format(e))
+        return
+
+    listing_data = {
+        "title_en": listing_content.get("title", ""),
+        "description_en": listing_content.get("description", ""),
+        "price_usd": price_usd,
+        "tags": listing_content.get("tags", []),
+        "category_id": category_id,
+        "excluded_countries": ban_result.get("excluded_countries", []),
+    }
+
+    # 出品
+    console.print("[dim]eBay出品中...[/dim]")
+    try:
+        client = EbayClient(sandbox=sandbox)
+        result = client.create_listing(p, listing_data)
+    except Exception as e:
+        console.print("[red]出品エラー: {}[/red]".format(e))
+        return
+
+    # DB記録
+    from src.ai.profit_calculator import estimate_shipping
+    shipping = estimate_shipping(p.get("weight_g"))
+    database.create_listing({
+        "product_id": product_id,
+        "platform": "ebay",
+        "platform_listing_id": result["platform_listing_id"],
+        "title_en": listing_data["title_en"],
+        "description_en": listing_data["description_en"],
+        "tags": listing_data["tags"],
+        "price_usd": price_usd,
+        "shipping_cost_usd": shipping["cost_usd"],
+        "status": result["status"],
+        "ban_check_passed": True,
+        "excluded_countries": listing_data["excluded_countries"],
+    })
+
+    console.print("[green]出品完了[/green]")
+    console.print("  Listing ID: {}".format(result["platform_listing_id"]))
+    console.print("  URL: {}".format(result.get("url", "")))
+
+
+@platform.command("list-etsy")
+@click.option("--id", "product_id", type=int, required=True, help="商品ID")
+@click.option("--price", "price_usd", type=float, required=True, help="販売価格（USD）")
+@click.option("--taxonomy-id", type=int, default=None, help="EtsyタクソノミーID")
+def platform_list_etsy(product_id, price_usd, taxonomy_id):
+    """Etsyに出品"""
+    from src.ai.ban_filter import check_ban_risk
+    from src.ai.description_generator import generate_full_listing
+    from src.platforms.etsy import EtsyClient
+
+    database = Database()
+    p = database.get_product(product_id)
+    if not p:
+        console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
+        return
+
+    # BANチェック
+    ban_result = check_ban_risk(p, database)
+    if not ban_result["safe"]:
+        console.print("[red]BANリスクあり。出品中止。[/red]")
+        for issue in ban_result["issues"]:
+            console.print("  [yellow]- {}[/yellow]".format(issue["detail"]))
+        return
+
+    console.print("[bold]商品:[/bold] {}".format(p["name_ja"][:50]))
+
+    # AI説明生成
+    console.print("[dim]AI説明生成中...[/dim]")
+    try:
+        listing_content = generate_full_listing(p)
+    except Exception as e:
+        console.print("[red]AI生成エラー: {}[/red]".format(e))
+        return
+
+    listing_data = {
+        "title_en": listing_content.get("title", ""),
+        "description_en": listing_content.get("description", ""),
+        "price_usd": price_usd,
+        "tags": listing_content.get("tags", []),
+        "taxonomy_id": taxonomy_id,
+    }
+
+    # 出品
+    console.print("[dim]Etsy出品中...[/dim]")
+    try:
+        client = EtsyClient()
+        result = client.create_listing(p, listing_data)
+    except Exception as e:
+        console.print("[red]出品エラー: {}[/red]".format(e))
+        return
+
+    # DB記録
+    from src.ai.profit_calculator import estimate_shipping
+    shipping = estimate_shipping(p.get("weight_g"))
+    database.create_listing({
+        "product_id": product_id,
+        "platform": "etsy",
+        "platform_listing_id": result["platform_listing_id"],
+        "title_en": listing_data["title_en"],
+        "description_en": listing_data["description_en"],
+        "tags": listing_data["tags"],
+        "price_usd": price_usd,
+        "shipping_cost_usd": shipping["cost_usd"],
+        "status": result["status"],
+        "ban_check_passed": True,
+    })
+
+    console.print("[green]出品完了[/green]")
+    console.print("  Listing ID: {}".format(result["platform_listing_id"]))
+    console.print("  URL: {}".format(result.get("url", "")))
+
+
+@platform.command("listings")
+@click.option("-p", "--platform", "platform_name", default=None,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム絞り込み")
+@click.option("-s", "--status", default=None, help="ステータス絞り込み")
+@click.option("-l", "--limit", default=20, help="表示件数")
+def platform_listings(platform_name, status, limit):
+    """リスティング一覧を表示"""
+    database = Database()
+
+    listings = database.get_listings(
+        platform=platform_name, status=status, limit=limit
+    )
+    if not listings:
+        console.print("[yellow]リスティングがありません。[/yellow]")
+        return
+
+    table = Table(title="リスティング一覧")
+    table.add_column("ID", justify="right", style="dim")
+    table.add_column("商品ID", justify="right")
+    table.add_column("PF", style="cyan")
+    table.add_column("タイトル", max_width=35)
+    table.add_column("価格($)", justify="right", style="green")
+    table.add_column("状態", style="yellow")
+    table.add_column("売上", justify="right")
+
+    for l in listings:
+        title = (l.get("title_en") or "")
+        title_display = (title[:32] + "...") if len(title) > 35 else title
+        table.add_row(
+            str(l["id"]),
+            str(l.get("product_id", "")),
+            l["platform"],
+            title_display,
+            "${:.2f}".format(l["price_usd"]) if l.get("price_usd") else "-",
+            l.get("status", "-"),
+            str(l.get("sales", 0)),
+        )
+
+    console.print(table)
+    console.print("[dim]{} 件表示[/dim]".format(len(listings)))
+
+
+# --- sync コマンド ---
+
+@cli.group()
+def sync():
+    """在庫同期・注文処理"""
+    pass
+
+
+@sync.command("inventory")
+@click.option("-p", "--platform", "platform_name", default=None,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム指定")
+def sync_inventory(platform_name):
+    """在庫同期を実行"""
+    from src.sync.inventory_sync import InventorySyncEngine
+
+    database = Database()
+
+    # プラットフォームクライアント初期化
+    clients = _init_platform_clients()
+    if not clients:
+        console.print("[red]利用可能なプラットフォームがありません。[/red]")
+        return
+
+    # 通知
+    notifier = _init_notifier()
+
+    engine = InventorySyncEngine(database, clients, notifier)
+
+    console.print("[bold]在庫同期実行中...[/bold]")
+    try:
+        results = engine.sync(platform=platform_name)
+    except Exception as e:
+        console.print("[red]同期エラー: {}[/red]".format(e))
+        return
+
+    console.print("[green]同期完了[/green]")
+    console.print("  チェック: {}件".format(results["items_checked"]))
+    console.print("  変更: {}件".format(results["items_changed"]))
+
+    if results["deactivated"]:
+        console.print("  非公開化: {}件".format(len(results["deactivated"])))
+    if results["reactivated"]:
+        console.print("  再公開: {}件".format(len(results["reactivated"])))
+    if results["errors"]:
+        console.print("  [red]エラー: {}件[/red]".format(len(results["errors"])))
+
+
+@sync.command("orders")
+@click.option("-p", "--platform", "platform_name", default=None,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム指定")
+def sync_orders(platform_name):
+    """注文を取得・処理"""
+    from src.sync.order_processor import OrderProcessor
+
+    database = Database()
+
+    clients = _init_platform_clients()
+    if not clients:
+        console.print("[red]利用可能なプラットフォームがありません。[/red]")
+        return
+
+    notifier = _init_notifier()
+
+    processor = OrderProcessor(database, clients, notifier)
+
+    console.print("[bold]注文処理実行中...[/bold]")
+    try:
+        results = processor.process(platform=platform_name)
+    except Exception as e:
+        console.print("[red]注文処理エラー: {}[/red]".format(e))
+        return
+
+    console.print("[green]注文処理完了[/green]")
+    console.print("  新規注文: {}件".format(results["new_orders"]))
+    console.print("  売上: ${:.2f}".format(results["total_revenue_usd"]))
+    console.print("  利益: ${:.2f}".format(results["total_profit_usd"]))
+    if results["errors"]:
+        console.print("  [red]エラー: {}件[/red]".format(len(results["errors"])))
+
+
+# --- notify コマンド ---
+
+@cli.group()
+def notify():
+    """通知管理（LINE Notify）"""
+    pass
+
+
+@notify.command("test")
+def notify_test():
+    """LINE Notifyテスト通知"""
+    from src.notifications.line import LineNotifier
+
+    try:
+        notifier = LineNotifier()
+    except ValueError as e:
+        console.print("[red]エラー: {}[/red]".format(e))
+        return
+
+    result = notifier._send("\n[テスト] EC自動化システムからの通知テストです。")
+    if result["success"]:
+        console.print("[green]テスト通知を送信しました。[/green]")
+    else:
+        console.print("[red]通知失敗 (status={})[/red]".format(result["status"]))
+
+
+@notify.command("daily")
+def notify_daily():
+    """日次サマリー通知"""
+    from src.notifications.line import LineNotifier
+
+    database = Database()
+
+    try:
+        notifier = LineNotifier()
+    except ValueError as e:
+        console.print("[red]エラー: {}[/red]".format(e))
+        return
+
+    summary = database.get_daily_summary()
+    result = notifier.notify_daily_summary(summary)
+
+    if result["success"]:
+        console.print("[green]日次サマリーを送信しました。[/green]")
+        console.print("  注文: {}件 / 売上: ${:.2f} / 利益: ${:.2f}".format(
+            summary["orders_count"], summary["revenue_usd"], summary["profit_usd"]
+        ))
+    else:
+        console.print("[red]通知失敗 (status={})[/red]".format(result["status"]))
+
+
+# --- auth コマンド ---
+
+@cli.group()
+def auth():
+    """OAuth認証管理"""
+    pass
+
+
+@auth.command("setup")
+@click.option("--platform", "platform_name", required=True,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム")
+@click.option("--sandbox", is_flag=True, help="sandbox環境（eBayのみ）")
+def auth_setup(platform_name, sandbox):
+    """OAuth認証セットアップ（ブラウザ認証）"""
+    console.print("OAuth認証は専用スクリプトで実行してください:")
+    cmd = "python scripts/oauth_setup.py --platform {}".format(platform_name)
+    if sandbox:
+        cmd += " --sandbox"
+    console.print("[cyan]{}[/cyan]".format(cmd))
+
+
+@auth.command("status")
+@click.option("--platform", "platform_name", required=True,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム")
+def auth_status(platform_name):
+    """トークン状態を確認"""
+    from src.auth.oauth_manager import OAuthTokenManager
+
+    manager = OAuthTokenManager(platform_name)
+    token_data = manager.load_token()
+
+    if not token_data:
+        console.print("[red]{}のトークンが未設定です。[/red]".format(platform_name))
+        return
+
+    expired = manager.is_token_expired(token_data)
+
+    table = Table(title="{}トークン状態".format(platform_name.upper()))
+    table.add_column("項目", style="cyan")
+    table.add_column("値")
+
+    table.add_row("ファイル", str(manager.token_path))
+    table.add_row("状態", "[red]期限切れ[/red]" if expired else "[green]有効[/green]")
+    table.add_row("リフレッシュ", "あり" if token_data.get("refresh_token") else "なし")
+
+    import time
+    expires_at = token_data.get("expires_at", 0)
+    if expires_at:
+        from datetime import datetime
+        expires_dt = datetime.fromtimestamp(expires_at)
+        table.add_row("有効期限", expires_dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+    saved_at = token_data.get("saved_at", 0)
+    if saved_at:
+        from datetime import datetime
+        saved_dt = datetime.fromtimestamp(saved_at)
+        table.add_row("保存日時", saved_dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+    console.print(table)
+
+
+# --- dashboard コマンド ---
+
+@cli.group()
+def dashboard():
+    """ダッシュボード管理（Google Sheets）"""
+    pass
+
+
+@dashboard.command("update")
+@click.option("--sheet", default="all",
+              type=click.Choice(["all", "daily", "listings", "orders", "inventory"]),
+              help="更新するシート")
+def dashboard_update(sheet):
+    """Google Sheetsダッシュボードを更新"""
+    from src.dashboard.sheets import SheetsDashboard
+
+    database = Database()
+
+    try:
+        dash = SheetsDashboard()
+    except Exception as e:
+        console.print("[red]エラー: {}[/red]".format(e))
+        return
+
+    console.print("[bold]ダッシュボード更新中...[/bold]")
+
+    try:
+        if sheet == "all":
+            results = dash.update_all(database)
+            for name, result in results.items():
+                if result.get("success"):
+                    console.print("[green]  {} 更新完了[/green]".format(name))
+        elif sheet == "daily":
+            dash.update_daily_report(database)
+        elif sheet == "listings":
+            dash.update_listings(database)
+        elif sheet == "orders":
+            dash.update_orders(database)
+        elif sheet == "inventory":
+            dash.update_inventory(database)
+
+        console.print("[green]ダッシュボード更新完了[/green]")
+
+    except Exception as e:
+        console.print("[red]更新エラー: {}[/red]".format(e))
+
+
+# --- ヘルパー関数 ---
+
+def _init_platform_clients():
+    """利用可能なプラットフォームクライアントを初期化"""
+    clients = {}
+
+    try:
+        from src.platforms.ebay import EbayClient
+        clients["ebay"] = EbayClient(sandbox=False)
+    except Exception:
+        pass
+
+    try:
+        from src.platforms.etsy import EtsyClient
+        clients["etsy"] = EtsyClient()
+    except Exception:
+        pass
+
+    try:
+        from src.platforms.base_shop import BaseShopClient
+        clients["base"] = BaseShopClient()
+    except Exception:
+        pass
+
+    return clients
+
+
+def _init_notifier():
+    """LINE Notifier を初期化（失敗時はNone）"""
+    try:
+        from src.notifications.line import LineNotifier
+        return LineNotifier()
+    except (ValueError, Exception):
+        return None
 
 
 # --- エントリポイント ---

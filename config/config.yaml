@@ -14,11 +14,42 @@ ebay:
     api_url: https://api.sandbox.ebay.com
     browse_url: https://api.sandbox.ebay.com/buy/browse/v1
     auth_url: https://api.sandbox.ebay.com/identity/v1/oauth2/token
+    inventory_url: https://api.sandbox.ebay.com/sell/inventory/v1
+    fulfillment_url: https://api.sandbox.ebay.com/sell/fulfillment/v1
   production:
     api_url: https://api.ebay.com
     browse_url: https://api.ebay.com/buy/browse/v1
     auth_url: https://api.ebay.com/identity/v1/oauth2/token
+    inventory_url: https://api.ebay.com/sell/inventory/v1
+    fulfillment_url: https://api.ebay.com/sell/fulfillment/v1
   marketplace_id: EBAY_US
+
+# Etsy設定
+etsy:
+  api_url: https://openapi.etsy.com/v3/application
+  # taxonomy_idはカテゴリ別に設定
+  # 手ぬぐい/風呂敷: Craft Supplies > Fabric
+  # 包丁: Craft Supplies > Tools
+  # お香: Home & Living > Candles & Incense
+  # 和紙: Craft Supplies > Paper
+
+# BASE設定
+base:
+  api_url: https://api.thebase.in/1
+
+# LINE Notify設定
+line_notify:
+  api_url: https://notify-api.line.me/api/notify
+
+# Google Sheets設定
+google_sheets:
+  # サービスアカウントJSONのパス
+  service_account_path: config/google_sa.json
+
+# 同期設定
+sync:
+  inventory_interval_minutes: 15
+  order_interval_minutes: 5
 
 # 為替レート（手動更新、将来API化）
 exchange_rate:

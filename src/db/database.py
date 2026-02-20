@@ -250,3 +250,323 @@ class Database:
                 (category,),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    # --- リスティング CRUD ---
+
+    def create_listing(self, listing: Dict[str, Any]) -> int:
+        """リスティングを作成。listing IDを返す"""
+        with self.connect() as conn:
+            # tagsがリストの場合はJSON文字列化
+            tags = listing.get("tags")
+            if isinstance(tags, list):
+                tags = json.dumps(tags)
+
+            excluded = listing.get("excluded_countries")
+            if isinstance(excluded, list):
+                excluded = json.dumps(excluded)
+
+            ban_issues = listing.get("ban_check_issues")
+            if isinstance(ban_issues, list):
+                ban_issues = json.dumps(ban_issues)
+
+            cursor = conn.execute(
+                """INSERT INTO listings
+                   (product_id, platform, platform_listing_id,
+                    title_en, description_en, tags,
+                    price_usd, shipping_cost_usd, status,
+                    ban_check_passed, ban_check_issues, excluded_countries)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    listing["product_id"],
+                    listing["platform"],
+                    listing.get("platform_listing_id"),
+                    listing.get("title_en"),
+                    listing.get("description_en"),
+                    tags,
+                    listing.get("price_usd"),
+                    listing.get("shipping_cost_usd"),
+                    listing.get("status", "draft"),
+                    listing.get("ban_check_passed", False),
+                    ban_issues,
+                    excluded,
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_listing(self, listing_id: int) -> Optional[dict]:
+        """リスティングをIDで取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM listings WHERE id = ?",
+                (listing_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_listings(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        product_id: Optional[int] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """リスティング一覧を取得"""
+        query = "SELECT * FROM listings WHERE 1=1"
+        params: List[Any] = []
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if product_id:
+            query += " AND product_id = ?"
+            params.append(product_id)
+
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_listing(self, listing_id: int, updates: Dict[str, Any]) -> bool:
+        """リスティングを更新"""
+        if not updates:
+            return False
+
+        # 更新可能なカラム
+        allowed = {
+            "platform_listing_id", "title_en", "description_en",
+            "tags", "price_usd", "shipping_cost_usd", "status",
+            "ban_check_passed", "ban_check_issues", "excluded_countries",
+            "views", "favorites", "sales",
+        }
+
+        set_clauses = []
+        params: List[Any] = []
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            # リスト値はJSON文字列化
+            if isinstance(value, list):
+                value = json.dumps(value)
+            set_clauses.append(f"{key} = ?")
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(listing_id)
+
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE listings SET {', '.join(set_clauses)} WHERE id = ?",
+                params,
+            )
+            return True
+
+    def get_listing_by_platform_id(self, platform: str,
+                                    platform_listing_id: str) -> Optional[dict]:
+        """プラットフォームIDからリスティングを取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                """SELECT * FROM listings
+                   WHERE platform = ? AND platform_listing_id = ?""",
+                (platform, platform_listing_id),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_active_listings_with_products(
+        self, platform: Optional[str] = None,
+    ) -> List[dict]:
+        """アクティブなリスティングを商品情報付きで取得"""
+        query = """
+            SELECT l.*, p.supplier_product_id, p.name_ja, p.stock_status,
+                   p.wholesale_price_jpy, p.weight_g, p.category
+            FROM listings l
+            JOIN products p ON l.product_id = p.id
+            WHERE l.status = 'active'
+        """
+        params: List[Any] = []
+        if platform:
+            query += " AND l.platform = ?"
+            params.append(platform)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    # --- 注文 CRUD ---
+
+    def create_order(self, order: Dict[str, Any]) -> int:
+        """注文を作成。order IDを返す"""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO orders
+                   (listing_id, platform, platform_order_id,
+                    buyer_country, sale_price_usd, platform_fees_usd,
+                    shipping_cost_usd, wholesale_cost_jpy, profit_usd,
+                    status, ordered_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    order.get("listing_id"),
+                    order["platform"],
+                    order["platform_order_id"],
+                    order.get("buyer_country"),
+                    order.get("sale_price_usd"),
+                    order.get("platform_fees_usd"),
+                    order.get("shipping_cost_usd"),
+                    order.get("wholesale_cost_jpy"),
+                    order.get("profit_usd"),
+                    order.get("status", "pending"),
+                    order.get("ordered_at", datetime.now().isoformat()),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_order(self, order_id: int) -> Optional[dict]:
+        """注文をIDで取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_order_by_platform_id(self, platform: str,
+                                  platform_order_id: str) -> Optional[dict]:
+        """プラットフォーム注文IDから注文を取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                """SELECT * FROM orders
+                   WHERE platform = ? AND platform_order_id = ?""",
+                (platform, platform_order_id),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_orders(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """注文一覧を取得"""
+        query = "SELECT * FROM orders WHERE 1=1"
+        params: List[Any] = []
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+
+        query += " ORDER BY ordered_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_order(self, order_id: int, updates: Dict[str, Any]) -> bool:
+        """注文を更新"""
+        if not updates:
+            return False
+
+        allowed = {
+            "status", "supplier_order_id", "tracking_number",
+            "shipped_at", "delivered_at", "profit_usd",
+            "platform_fees_usd", "shipping_cost_usd",
+        }
+
+        set_clauses = []
+        params: List[Any] = []
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            set_clauses.append(f"{key} = ?")
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        params.append(order_id)
+
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = ?",
+                params,
+            )
+            return True
+
+    # --- 同期ログ ---
+
+    def create_sync_log(self, sync_type: str, platform: str = "all") -> int:
+        """同期ログを開始。sync_log IDを返す"""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO sync_log (sync_type, platform, status)
+                   VALUES (?, ?, 'running')""",
+                (sync_type, platform),
+            )
+            return cursor.lastrowid
+
+    def complete_sync_log(self, sync_id: int, items_checked: int,
+                          items_changed: int,
+                          errors: Optional[List[str]] = None,
+                          success: bool = True) -> None:
+        """同期ログを完了"""
+        errors_json = json.dumps(errors) if errors else None
+        status = "completed" if success else "failed"
+
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE sync_log
+                   SET status = ?, items_checked = ?, items_changed = ?,
+                       errors = ?, completed_at = ?
+                   WHERE id = ?""",
+                (status, items_checked, items_changed,
+                 errors_json, datetime.now().isoformat(), sync_id),
+            )
+
+    def get_daily_summary(self, date: Optional[str] = None) -> Dict[str, Any]:
+        """日次サマリーを取得"""
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        with self.connect() as conn:
+            # 当日の注文
+            order_row = conn.execute(
+                """SELECT COUNT(*) as cnt,
+                          COALESCE(SUM(sale_price_usd), 0) as revenue,
+                          COALESCE(SUM(profit_usd), 0) as profit
+                   FROM orders
+                   WHERE date(ordered_at) = ?""",
+                (date,),
+            ).fetchone()
+
+            # アクティブリスティング数
+            listing_row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM listings WHERE status = 'active'"
+            ).fetchone()
+
+            # 当日の在庫変動
+            sync_row = conn.execute(
+                """SELECT COALESCE(SUM(items_changed), 0) as changes
+                   FROM sync_log
+                   WHERE sync_type = 'inventory'
+                     AND date(started_at) = ?""",
+                (date,),
+            ).fetchone()
+
+            return {
+                "date": date,
+                "orders_count": order_row["cnt"],
+                "revenue_usd": order_row["revenue"],
+                "profit_usd": order_row["profit"],
+                "active_listings": listing_row["cnt"],
+                "stock_changes": sync_row["changes"],
+            }

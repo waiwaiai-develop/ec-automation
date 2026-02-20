@@ -112,6 +112,21 @@ CREATE TABLE IF NOT EXISTS ebay_market_data (
 );
 """
 
+# 同期ログ（在庫同期・注文処理の実行記録）
+SYNC_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS sync_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    sync_type           TEXT NOT NULL,            -- 'inventory' or 'orders'
+    platform            TEXT,                     -- 'ebay','etsy','all'
+    status              TEXT DEFAULT 'running',   -- 'running','completed','failed'
+    items_checked       INTEGER DEFAULT 0,
+    items_changed       INTEGER DEFAULT 0,
+    errors              TEXT,                     -- JSON array
+    started_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at        DATETIME
+);
+"""
+
 # 全テーブル定義（作成順）
 ALL_TABLES = [
     ("products", PRODUCTS_TABLE),
@@ -120,6 +135,7 @@ ALL_TABLES = [
     ("brand_blacklist", BRAND_BLACKLIST_TABLE),
     ("country_restrictions", COUNTRY_RESTRICTIONS_TABLE),
     ("ebay_market_data", EBAY_MARKET_DATA_TABLE),
+    ("sync_log", SYNC_LOG_TABLE),
 ]
 
 # シードデータ: 包丁の配送制限（UK/IE）
