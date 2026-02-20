@@ -1,0 +1,252 @@
+"""SQLiteデータベース接続管理
+
+同期sqlite3を使用（DB操作はサブミリ秒、async不要）。
+upsertメソッドと統計集計を提供。
+"""
+
+import json
+import os
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from src.db.schema import (
+    ALL_TABLES,
+    SEED_BRAND_BLACKLIST,
+    SEED_COUNTRY_RESTRICTIONS,
+)
+
+
+class Database:
+    """SQLiteデータベースマネージャー"""
+
+    def __init__(self, db_path: Optional[str] = None):
+        if db_path is None:
+            # プロジェクトルートからの相対パス
+            project_root = Path(__file__).parent.parent.parent
+            db_path = str(project_root / "data" / "dropship.db")
+
+        self.db_path = db_path
+        # dataディレクトリが存在しない場合は作成
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    @contextmanager
+    def connect(self):
+        """コネクション管理（コンテキストマネージャー）"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def init_tables(self) -> List[str]:
+        """全テーブルを作成（冪等）。作成したテーブル名リストを返す"""
+        created = []
+        with self.connect() as conn:
+            for name, sql in ALL_TABLES:
+                conn.execute(sql)
+                created.append(name)
+        return created
+
+    def seed_data(self) -> Dict[str, int]:
+        """シードデータ投入（冪等: INSERT OR IGNORE）"""
+        counts = {"country_restrictions": 0, "brand_blacklist": 0}
+
+        with self.connect() as conn:
+            # 国別配送制限
+            for category, country_code, reason in SEED_COUNTRY_RESTRICTIONS:
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO country_restrictions
+                       (category, country_code, reason)
+                       VALUES (?, ?, ?)""",
+                    (category, country_code, reason),
+                )
+                counts["country_restrictions"] += cursor.rowcount
+
+            # ブランドブラックリスト
+            for brand, platform, risk, notes in SEED_BRAND_BLACKLIST:
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO brand_blacklist
+                       (brand_name, platform, risk_level, notes)
+                       VALUES (?, ?, ?, ?)""",
+                    (brand, platform, risk, notes),
+                )
+                counts["brand_blacklist"] += cursor.rowcount
+
+        return counts
+
+    def upsert_product(self, product: Dict[str, Any]) -> int:
+        """商品をupsert（supplier_product_idで一意判定）。product IDを返す"""
+        with self.connect() as conn:
+            # image_urlsがリストの場合はJSON文字列化
+            image_urls = product.get("image_urls")
+            if isinstance(image_urls, list):
+                image_urls = json.dumps(image_urls)
+
+            cursor = conn.execute(
+                """INSERT INTO products
+                   (supplier, supplier_product_id, name_ja, name_en,
+                    description_ja, description_en, category,
+                    wholesale_price_jpy, weight_g, image_urls,
+                    stock_status, last_stock_check, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(supplier_product_id) DO UPDATE SET
+                    name_ja = excluded.name_ja,
+                    description_ja = excluded.description_ja,
+                    wholesale_price_jpy = excluded.wholesale_price_jpy,
+                    weight_g = excluded.weight_g,
+                    image_urls = excluded.image_urls,
+                    stock_status = excluded.stock_status,
+                    last_stock_check = excluded.last_stock_check,
+                    updated_at = excluded.updated_at""",
+                (
+                    product.get("supplier", "netsea"),
+                    product["supplier_product_id"],
+                    product["name_ja"],
+                    product.get("name_en"),
+                    product.get("description_ja"),
+                    product.get("description_en"),
+                    product.get("category"),
+                    product.get("wholesale_price_jpy"),
+                    product.get("weight_g"),  # NULLのまま保持（0にしない）
+                    image_urls,
+                    product.get("stock_status", "in_stock"),
+                    product.get("last_stock_check", datetime.now().isoformat()),
+                    datetime.now().isoformat(),
+                ),
+            )
+            # upsert後のIDを取得
+            row = conn.execute(
+                "SELECT id FROM products WHERE supplier_product_id = ?",
+                (product["supplier_product_id"],),
+            ).fetchone()
+            return row["id"]
+
+    def insert_market_data(self, data: Dict[str, Any]) -> int:
+        """eBayマーケットデータを挿入"""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO ebay_market_data
+                   (keyword, marketplace_id, total_results,
+                    avg_price_usd, min_price_usd, max_price_usd,
+                    median_price_usd, avg_shipping_usd,
+                    sold_count_sample, sample_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    data["keyword"],
+                    data.get("marketplace_id", "EBAY_US"),
+                    data.get("total_results"),
+                    data.get("avg_price_usd"),
+                    data.get("min_price_usd"),
+                    data.get("max_price_usd"),
+                    data.get("median_price_usd"),
+                    data.get("avg_shipping_usd"),
+                    data.get("sold_count_sample"),
+                    data.get("sample_size"),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_stats(self) -> Dict[str, Any]:
+        """全テーブルのレコード数と概要統計を返す"""
+        stats = {}
+        with self.connect() as conn:
+            for name, _ in ALL_TABLES:
+                try:
+                    row = conn.execute(
+                        f"SELECT COUNT(*) as cnt FROM {name}"
+                    ).fetchone()
+                    stats[name] = row["cnt"]
+                except sqlite3.OperationalError:
+                    stats[name] = "テーブル未作成"
+
+            # 商品の仕入先別内訳
+            try:
+                rows = conn.execute(
+                    """SELECT supplier, COUNT(*) as cnt
+                       FROM products GROUP BY supplier"""
+                ).fetchall()
+                stats["products_by_supplier"] = {
+                    row["supplier"]: row["cnt"] for row in rows
+                }
+            except sqlite3.OperationalError:
+                pass
+
+            # 商品のカテゴリ別内訳
+            try:
+                rows = conn.execute(
+                    """SELECT category, COUNT(*) as cnt
+                       FROM products GROUP BY category"""
+                ).fetchall()
+                stats["products_by_category"] = {
+                    (row["category"] or "未分類"): row["cnt"] for row in rows
+                }
+            except sqlite3.OperationalError:
+                pass
+
+        return stats
+
+    def get_product(self, product_id: int) -> Optional[dict]:
+        """商品をIDで取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM products WHERE id = ?",
+                (product_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_products(
+        self,
+        supplier: Optional[str] = None,
+        category: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """商品一覧を取得"""
+        query = "SELECT * FROM products WHERE 1=1"
+        params: List[Any] = []
+
+        if supplier:
+            query += " AND supplier = ?"
+            params.append(supplier)
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def is_brand_blacklisted(self, text: str) -> List[dict]:
+        """テキスト内にブラックリストブランドが含まれるか検査"""
+        matches = []
+        with self.connect() as conn:
+            brands = conn.execute(
+                "SELECT brand_name, platform, risk_level, notes FROM brand_blacklist"
+            ).fetchall()
+            text_lower = text.lower()
+            for brand in brands:
+                if brand["brand_name"].lower() in text_lower:
+                    matches.append(dict(brand))
+        return matches
+
+    def get_country_restrictions(self, category: str) -> List[dict]:
+        """カテゴリの配送制限国を取得"""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT country_code, reason FROM country_restrictions
+                   WHERE category = ?""",
+                (category,),
+            ).fetchall()
+            return [dict(row) for row in rows]

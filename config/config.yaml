@@ -1,0 +1,37 @@
+# データベース設定
+database:
+  path: data/dropship.db
+
+# NETSEA API設定
+netsea:
+  base_url: https://api.netsea.jp/buyer/v1
+  default_limit: 50
+  max_limit: 100
+
+# eBay設定
+ebay:
+  sandbox:
+    api_url: https://api.sandbox.ebay.com
+    browse_url: https://api.sandbox.ebay.com/buy/browse/v1
+    auth_url: https://api.sandbox.ebay.com/identity/v1/oauth2/token
+  production:
+    api_url: https://api.ebay.com
+    browse_url: https://api.ebay.com/buy/browse/v1
+    auth_url: https://api.ebay.com/identity/v1/oauth2/token
+  marketplace_id: EBAY_US
+
+# 為替レート（手動更新、将来API化）
+exchange_rate:
+  usd_jpy: 150
+
+# 利益フィルター
+profit:
+  min_margin_pct: 25
+
+# 商品カテゴリ
+categories:
+  - tenugui
+  - furoshiki
+  - knife
+  - incense
+  - washi

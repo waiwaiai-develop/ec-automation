@@ -16,5 +16,15 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
 # Logs
 *.log
+
+# Database
+data/*.db
+data/*.db-journal
+
+# Config secrets
+config/.env
