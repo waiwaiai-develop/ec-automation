@@ -1,7 +1,14 @@
 """OAuth 2.0 トークン管理
 
 トークンをJSON形式でファイル保存し、期限切れ時に自動リフレッシュする。
-eBay（Basic Auth方式）とEtsy（PKCE方式）のリフレッシュ差異を内部吸収。
+eBay（Basic Auth方式）とEtsy（PKCE方式）とBASE（標準OAuth2方式）の
+リフレッシュ差異を内部吸収。
+
+BASEトークンの自動管理:
+- アクセストークン有効期限: 1時間
+- リフレッシュトークン有効期限: 約30日
+- .envに初期トークンを設定 → 初回利用時に自動でトークンファイルを作成
+- 以降はトークンファイルで管理し、期限切れ時に自動リフレッシュ
 """
 
 import base64
@@ -15,11 +22,13 @@ from typing import Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
+import yaml
 
 
 # トークン保存先ディレクトリ
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 TOKENS_DIR = _PROJECT_ROOT / "config" / "tokens"
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "config.yaml"
 
 
 class OAuthTokenManager:
@@ -123,19 +132,48 @@ class OAuthTokenManager:
         return time.time() >= (expires_at - 60)
 
     def get_valid_token(self) -> str:
-        """有効なアクセストークンを返す（期限切れなら自動リフレッシュ）"""
+        """有効なアクセストークンを返す（期限切れなら自動リフレッシュ）
+
+        BASEの場合、トークンファイルが未作成なら.envから自動ブートストラップする。
+        """
         token_data = self.load_token()
 
+        # トークンファイルが無い場合、.envからブートストラップを試みる
         if not token_data:
-            raise ValueError(
-                f"{self.platform}のトークンが未設定です。"
-                f"`python scripts/oauth_setup.py --platform {self.platform}` で認証してください。"
-            )
+            if self.platform == "base":
+                token_data = self._bootstrap_base_from_env()
+            if not token_data:
+                raise ValueError(
+                    f"{self.platform}のトークンが未設定です。"
+                    f"`python -m src.cli.main auth init --platform {self.platform}` で初期化してください。"
+                )
 
         if self.is_token_expired(token_data):
             token_data = self.refresh_token(token_data)
 
         return token_data["access_token"]
+
+    def _bootstrap_base_from_env(self) -> Optional[Dict]:
+        """BASE: .envのトークンからトークンファイルを初期作成
+
+        .envにBASE_ACCESS_TOKENとBASE_REFRESH_TOKENがあれば
+        トークンファイルを作成する。有効期限は不明なので即リフレッシュ対象とする。
+        """
+        access_token = os.environ.get("BASE_ACCESS_TOKEN", "")
+        refresh_token = os.environ.get("BASE_REFRESH_TOKEN", "")
+
+        if not access_token or not refresh_token:
+            return None
+
+        token_data = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            # 有効期限不明 → 期限切れとして扱い、次回アクセス時にリフレッシュ
+            "expires_at": 0,
+        }
+        self.save_token(token_data)
+        return token_data
 
     def refresh_token(self, token_data: Dict) -> Dict:
         """リフレッシュトークンで新しいアクセストークンを取得"""
@@ -209,26 +247,46 @@ class OAuthTokenManager:
         return response.json()
 
     def _refresh_base(self, refresh_token: str) -> Dict:
-        """BASE: リフレッシュトークンで更新"""
+        """BASE: リフレッシュトークンで更新
+
+        BASE APIはredirect_uriが必須パラメータ。
+        config.yamlのbase.redirect_uriから読み込む。
+        レスポンスには新しいaccess_tokenとrefresh_tokenが含まれる。
+        """
         client_id = os.environ.get("BASE_CLIENT_ID", "")
         client_secret = os.environ.get("BASE_CLIENT_SECRET", "")
 
         if not client_id or not client_secret:
             raise ValueError("BASE_CLIENT_ID / BASE_CLIENT_SECRET が設定されていません。")
 
+        redirect_uri = self._get_base_redirect_uri()
+
+        data = {
+            "grant_type": "refresh_token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+        }
+        if redirect_uri:
+            data["redirect_uri"] = redirect_uri
+
         response = httpx.post(
             self._get_token_url(),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={
-                "grant_type": "refresh_token",
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-            },
+            data=data,
             timeout=30,
         )
         response.raise_for_status()
         return response.json()
+
+    @staticmethod
+    def _get_base_redirect_uri() -> Optional[str]:
+        """config.yamlからBASEのredirect_uriを取得"""
+        if not _CONFIG_PATH.exists():
+            return None
+        with open(_CONFIG_PATH) as f:
+            config = yaml.safe_load(f)
+        return config.get("base", {}).get("redirect_uri")
 
     def build_auth_url(self, redirect_uri: str, state: Optional[str] = None) -> Dict:
         """認証URL（ブラウザ用）を構築

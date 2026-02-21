@@ -14,7 +14,7 @@ from src.db.database import Database
 
 # サービスアカウントJSONのパス
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
-DEFAULT_SA_PATH = _PROJECT_ROOT / "config" / "google_sa.json"
+DEFAULT_SA_PATH = _PROJECT_ROOT / "service-account-ec-automation.json"
 
 
 class SheetsDashboard:
@@ -199,8 +199,8 @@ class SheetsDashboard:
         products = database.get_products(limit=500)
 
         headers = [
-            "ID", "商品名", "カテゴリ", "卸値(円)",
-            "重量(g)", "在庫状況", "最終チェック",
+            "ID", "商品名", "カテゴリ", "卸値(円)", "上代(円)",
+            "重量(g)", "在庫状況", "ショップ", "商品URL",
         ]
         worksheet = self._get_or_create_worksheet(self.SHEET_INVENTORY, headers)
 
@@ -211,9 +211,11 @@ class SheetsDashboard:
                 (p.get("name_ja") or "")[:40],
                 p.get("category", ""),
                 p.get("wholesale_price_jpy", 0),
+                p.get("reference_price_jpy") or "",
                 p.get("weight_g") or "",
                 p.get("stock_status", ""),
-                p.get("last_stock_check", ""),
+                p.get("shop_name") or "",
+                p.get("product_url") or "",
             ])
 
         if rows:

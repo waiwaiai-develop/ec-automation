@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS products (
     weight_g            INTEGER,                  -- NULLは不明（0ではない）
     image_urls          TEXT,                     -- JSON array
     stock_status        TEXT DEFAULT 'in_stock',  -- 'in_stock','out_of_stock','discontinued'
+    product_url         TEXT,                     -- 仕入先の商品ページURL
+    supplier_id         TEXT,                     -- 仕入先サプライヤーID
+    shop_name           TEXT,                     -- サプライヤー/ショップ名
+    spec_text           TEXT,                     -- スペックテキスト（サイズ・素材等の生テキスト）
+    reference_price_jpy INTEGER,                  -- 参考上代（定価）
+    netsea_category_id  INTEGER,                  -- NETSEAカテゴリID
+    direct_send_flag      TEXT,                   -- 消費者直送可（Y/N）
+    image_copy_flag       TEXT,                   -- 画像転載可（Y/N）
+    deal_net_shop_flag    TEXT,                   -- ネット販売可（Y/N）
+    deal_net_auction_flag TEXT,                   -- ネットオークション可（Y/N）
     last_stock_check    DATETIME,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP

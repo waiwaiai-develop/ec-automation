@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}EC自動化{% endblock %} | ダッシュボード</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+        .navbar-brand { font-weight: bold; }
+        .stat-card { border-left: 4px solid; }
+        .stat-card.primary { border-left-color: #0d6efd; }
+        .stat-card.success { border-left-color: #198754; }
+        .stat-card.warning { border-left-color: #ffc107; }
+        .stat-card.info { border-left-color: #0dcaf0; }
+        .table th { white-space: nowrap; }
+        .badge-in_stock { background-color: #198754; }
+        .badge-out_of_stock { background-color: #dc3545; }
+        .badge-discontinued { background-color: #6c757d; }
+        .badge-active { background-color: #198754; }
+        .badge-draft { background-color: #ffc107; color: #000; }
+        .badge-paused { background-color: #6c757d; }
+        .badge-pending { background-color: #ffc107; color: #000; }
+        .badge-shipped { background-color: #0dcaf0; color: #000; }
+        .badge-delivered { background-color: #198754; }
+        .thumb-img { max-width: 60px; max-height: 60px; object-fit: cover; border-radius: 4px; }
+        .detail-img { max-width: 200px; max-height: 200px; object-fit: contain; border-radius: 8px; border: 1px solid #dee2e6; }
+        .category-bar { height: 24px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">EC自動化</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navMain">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">ダッシュボード</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/products' in request.path %}active{% endif %}" href="/products">商品</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/listings' in request.path %}active{% endif %}" href="/listings">出品</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/orders' in request.path %}active{% endif %}" href="/orders">注文</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="container mt-5 mb-3 text-center text-muted">
+        <small>EC自動化ダッシュボード</small>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

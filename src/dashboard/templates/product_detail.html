@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}商品詳細 #{{ product.id }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/products">商品一覧</a></li>
+        <li class="breadcrumb-item active">#{{ product.id }}</li>
+    </ol>
+</nav>
+
+<h2 class="mb-4">{{ product.name_ja }}</h2>
+
+<div class="row g-4">
+    <!-- 左: 画像 -->
+    <div class="col-md-4">
+        {% if images %}
+        <div class="d-flex flex-wrap gap-2">
+            {% for img in images %}
+            <img src="{{ img }}" class="detail-img" alt="商品画像" loading="lazy"
+                 onerror="this.style.display='none'">
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted p-4 border rounded text-center">画像なし</div>
+        {% endif %}
+
+        {% if product.product_url %}
+        <div class="mt-3">
+            <a href="{{ product.product_url }}" target="_blank" rel="noopener" class="btn btn-outline-primary">
+                NETSEAで見る
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 右: 商品情報 -->
+    <div class="col-md-8">
+        <table class="table table-sm">
+            <tbody>
+                <tr><th style="width:30%">ID</th><td>{{ product.id }}</td></tr>
+                <tr><th>仕入先</th><td>{{ product.supplier }}</td></tr>
+                <tr><th>仕入先商品ID</th><td>{{ product.supplier_product_id or '-' }}</td></tr>
+                <tr><th>カテゴリ</th><td>{{ product.category or '-' }}</td></tr>
+                <tr><th>卸値（税抜）</th><td>{{ product.wholesale_price_jpy|format_price }}円</td></tr>
+                <tr><th>参考上代</th><td>{{ product.reference_price_jpy|format_price }}円</td></tr>
+                <tr><th>重量</th><td>{{ (product.weight_g|string + 'g') if product.weight_g is not none else '不明' }}</td></tr>
+                <tr>
+                    <th>在庫状態</th>
+                    <td>
+                        <span class="badge badge-{{ product.stock_status or 'in_stock' }}">
+                            {{ product.stock_status or 'in_stock' }}
+                        </span>
+                    </td>
+                </tr>
+                <tr><th>ショップ名</th><td>{{ product.shop_name or '-' }}</td></tr>
+                <tr><th>サプライヤーID</th><td>{{ product.supplier_id or '-' }}</td></tr>
+                <tr><th>NETSEAカテゴリID</th><td>{{ product.netsea_category_id or '-' }}</td></tr>
+                <tr>
+                    <th>消費者直送</th>
+                    <td><span class="badge bg-{{ 'success' if product.direct_send_flag == 'Y' else 'danger' }}">{{ product.direct_send_flag or '-' }}</span></td>
+                </tr>
+                <tr>
+                    <th>画像転載</th>
+                    <td><span class="badge bg-{{ 'success' if product.image_copy_flag == 'Y' else 'danger' }}">{{ product.image_copy_flag or '-' }}</span></td>
+                </tr>
+                <tr>
+                    <th>ネット販売</th>
+                    <td><span class="badge bg-{{ 'success' if product.deal_net_shop_flag == 'Y' else 'danger' }}">{{ product.deal_net_shop_flag or '-' }}</span></td>
+                </tr>
+                <tr>
+                    <th>ネットオークション</th>
+                    <td><span class="badge bg-{{ 'success' if product.deal_net_auction_flag == 'Y' else 'danger' }}">{{ product.deal_net_auction_flag or '-' }}</span></td>
+                </tr>
+                <tr><th>最終在庫確認</th><td>{{ product.last_stock_check or '-' }}</td></tr>
+                <tr><th>更新日時</th><td>{{ product.updated_at or '-' }}</td></tr>
+            </tbody>
+        </table>
+
+        <!-- 商品名（英語） -->
+        {% if product.name_en %}
+        <div class="mb-3">
+            <strong>英語名:</strong>
+            <div class="mt-1">{{ product.name_en }}</div>
+        </div>
+        {% endif %}
+
+        <!-- スペック -->
+        {% if product.spec_text %}
+        <div class="mb-3">
+            <strong>スペック:</strong>
+            <pre class="bg-light p-2 rounded mt-1" style="white-space: pre-wrap; font-size: 0.85em;">{{ product.spec_text }}</pre>
+        </div>
+        {% endif %}
+
+        <!-- 説明文 -->
+        {% if product.description_ja %}
+        <div class="mb-3">
+            <strong>説明（日本語）:</strong>
+            <div class="mt-1 bg-light p-2 rounded" style="font-size: 0.85em;">{{ product.description_ja }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.description_en %}
+        <div class="mb-3">
+            <strong>説明（英語）:</strong>
+            <div class="mt-1 bg-light p-2 rounded" style="font-size: 0.85em;">{{ product.description_en }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 利益シミュレーション -->
+{% if profit_info %}
+<div class="card mt-4">
+    <div class="card-header">利益シミュレーション（eBay）</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th>販売価格</th>
+                        <th>仕入原価</th>
+                        <th>送料</th>
+                        <th>手数料</th>
+                        <th>利益</th>
+                        <th>利益率</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for calc in profit_info %}
+                    <tr class="{{ 'table-success' if calc.profitable else 'table-danger' }}">
+                        <td>${{ "%.2f"|format(calc.sale_usd) }}</td>
+                        <td>${{ "%.2f"|format(calc.wholesale_usd) }}</td>
+                        <td>${{ "%.2f"|format(calc.shipping_usd) }}</td>
+                        <td>${{ "%.2f"|format(calc.platform_fees_usd) }}</td>
+                        <td><strong>${{ "%.2f"|format(calc.profit_usd) }}</strong></td>
+                        <td>
+                            <strong>{{ "%.1f"|format(calc.profit_margin * 100) }}%</strong>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <small class="text-muted">※ 利益率25%以上（緑）の価格帯が出品推奨ラインです</small>
+    </div>
+</div>
+{% endif %}
+
+<!-- 関連リスティング -->
+{% if listings %}
+<div class="card mt-4">
+    <div class="card-header">関連リスティング</div>
+    <div class="card-body">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>プラットフォーム</th>
+                    <th>タイトル</th>
+                    <th class="text-end">価格</th>
+                    <th>ステータス</th>
+                    <th class="text-end">売上</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in listings %}
+                <tr>
+                    <td>{{ l.id }}</td>
+                    <td>{{ l.platform }}</td>
+                    <td>{{ (l.title_en or '')[:40] }}</td>
+                    <td class="text-end">{{ l.price_usd|format_price('USD') }}</td>
+                    <td><span class="badge badge-{{ l.status }}">{{ l.status }}</span></td>
+                    <td class="text-end">{{ l.sales or 0 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}注文一覧{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>注文一覧</h2>
+    <span class="text-muted">{{ orders|length }}件表示</span>
+</div>
+
+<!-- フィルター -->
+<form method="get" class="row g-2 mb-4">
+    <div class="col-auto">
+        <select name="platform" class="form-select form-select-sm">
+            <option value="">全プラットフォーム</option>
+            <option value="ebay" {% if current_platform == 'ebay' %}selected{% endif %}>eBay</option>
+            <option value="etsy" {% if current_platform == 'etsy' %}selected{% endif %}>Etsy</option>
+            <option value="base" {% if current_platform == 'base' %}selected{% endif %}>BASE</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="status" class="form-select form-select-sm">
+            <option value="">全ステータス</option>
+            <option value="pending" {% if current_status == 'pending' %}selected{% endif %}>pending</option>
+            <option value="purchased" {% if current_status == 'purchased' %}selected{% endif %}>purchased</option>
+            <option value="shipped" {% if current_status == 'shipped' %}selected{% endif %}>shipped</option>
+            <option value="delivered" {% if current_status == 'delivered' %}selected{% endif %}>delivered</option>
+            <option value="issue" {% if current_status == 'issue' %}selected{% endif %}>issue</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">絞り込み</button>
+        <a href="/orders" class="btn btn-sm btn-outline-secondary">リセット</a>
+    </div>
+</form>
+
+<!-- 注文テーブル -->
+<div class="table-responsive">
+    <table class="table table-hover table-sm">
+        <thead class="table-light">
+            <tr>
+                <th>ID</th>
+                <th>PF</th>
+                <th>注文ID</th>
+                <th>バイヤー国</th>
+                <th class="text-end">売上($)</th>
+                <th class="text-end">手数料($)</th>
+                <th class="text-end">送料($)</th>
+                <th class="text-end">仕入(円)</th>
+                <th class="text-end">利益($)</th>
+                <th>ステータス</th>
+                <th>追跡番号</th>
+                <th>注文日</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr>
+                <td>{{ o.id }}</td>
+                <td>{{ o.platform }}</td>
+                <td>{{ (o.platform_order_id or '-')[:15] }}</td>
+                <td>{{ o.buyer_country or '-' }}</td>
+                <td class="text-end">{{ o.sale_price_usd|format_price('USD') }}</td>
+                <td class="text-end">{{ o.platform_fees_usd|format_price('USD') }}</td>
+                <td class="text-end">{{ o.shipping_cost_usd|format_price('USD') }}</td>
+                <td class="text-end">{{ o.wholesale_cost_jpy|format_price }}</td>
+                <td class="text-end">
+                    {% if o.profit_usd is not none %}
+                    <span class="{{ 'text-success' if o.profit_usd >= 0 else 'text-danger' }}">
+                        ${{ "%.2f"|format(o.profit_usd) }}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+                <td>{{ o.tracking_number or '-' }}</td>
+                <td>{{ (o.ordered_at or '')[:10] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if not orders %}
+<div class="text-center text-muted py-5">
+    <p>注文がありません。</p>
+</div>
+{% endif %}
+{% endblock %}

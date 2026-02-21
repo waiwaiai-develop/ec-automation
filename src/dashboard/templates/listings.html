@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}出品一覧{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>出品一覧</h2>
+    <span class="text-muted">{{ listings|length }}件表示</span>
+</div>
+
+<!-- フィルター -->
+<form method="get" class="row g-2 mb-4">
+    <div class="col-auto">
+        <select name="platform" class="form-select form-select-sm">
+            <option value="">全プラットフォーム</option>
+            <option value="ebay" {% if current_platform == 'ebay' %}selected{% endif %}>eBay</option>
+            <option value="etsy" {% if current_platform == 'etsy' %}selected{% endif %}>Etsy</option>
+            <option value="base" {% if current_platform == 'base' %}selected{% endif %}>BASE</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="status" class="form-select form-select-sm">
+            <option value="">全ステータス</option>
+            <option value="draft" {% if current_status == 'draft' %}selected{% endif %}>draft</option>
+            <option value="active" {% if current_status == 'active' %}selected{% endif %}>active</option>
+            <option value="paused" {% if current_status == 'paused' %}selected{% endif %}>paused</option>
+            <option value="sold" {% if current_status == 'sold' %}selected{% endif %}>sold</option>
+            <option value="removed" {% if current_status == 'removed' %}selected{% endif %}>removed</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">絞り込み</button>
+        <a href="/listings" class="btn btn-sm btn-outline-secondary">リセット</a>
+    </div>
+</form>
+
+<!-- リスティングテーブル -->
+<div class="table-responsive">
+    <table class="table table-hover table-sm">
+        <thead class="table-light">
+            <tr>
+                <th>ID</th>
+                <th>商品ID</th>
+                <th>PF</th>
+                <th>タイトル</th>
+                <th class="text-end">価格($)</th>
+                <th class="text-end">送料($)</th>
+                <th>ステータス</th>
+                <th>BAN</th>
+                <th class="text-end">閲覧</th>
+                <th class="text-end">お気に入り</th>
+                <th class="text-end">売上</th>
+                <th>更新日</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in listings %}
+            <tr>
+                <td>{{ l.id }}</td>
+                <td>
+                    {% if l.product_id %}
+                    <a href="/products/{{ l.product_id }}">{{ l.product_id }}</a>
+                    {% else %}-{% endif %}
+                </td>
+                <td>{{ l.platform }}</td>
+                <td>{{ (l.title_en or '')[:45] }}{% if (l.title_en or '')|length > 45 %}...{% endif %}</td>
+                <td class="text-end">{{ l.price_usd|format_price('USD') }}</td>
+                <td class="text-end">{{ l.shipping_cost_usd|format_price('USD') }}</td>
+                <td><span class="badge badge-{{ l.status }}">{{ l.status }}</span></td>
+                <td>
+                    {% if l.ban_check_passed %}
+                    <span class="text-success">OK</span>
+                    {% else %}
+                    <span class="text-danger">NG</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ l.views or 0 }}</td>
+                <td class="text-end">{{ l.favorites or 0 }}</td>
+                <td class="text-end">{{ l.sales or 0 }}</td>
+                <td>{{ (l.updated_at or '')[:10] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if not listings %}
+<div class="text-center text-muted py-5">
+    <p>リスティングがありません。</p>
+</div>
+{% endif %}
+{% endblock %}

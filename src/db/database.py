@@ -55,6 +55,30 @@ class Database:
             for name, sql in ALL_TABLES:
                 conn.execute(sql)
                 created.append(name)
+
+            # 既存DBへのマイグレーション: productsテーブルに追加カラム
+            migrate_columns = [
+                ("product_url", "TEXT"),
+                ("supplier_id", "TEXT"),
+                ("shop_name", "TEXT"),
+                ("spec_text", "TEXT"),
+                ("reference_price_jpy", "INTEGER"),
+                ("netsea_category_id", "INTEGER"),
+                ("direct_send_flag", "TEXT"),
+                ("image_copy_flag", "TEXT"),
+                ("deal_net_shop_flag", "TEXT"),
+                ("deal_net_auction_flag", "TEXT"),
+            ]
+            for col_name, col_type in migrate_columns:
+                try:
+                    conn.execute(
+                        "ALTER TABLE products ADD COLUMN {} {}".format(
+                            col_name, col_type
+                        )
+                    )
+                except sqlite3.OperationalError:
+                    pass  # カラム既存ならスキップ
+
         return created
 
     def seed_data(self) -> Dict[str, int]:
@@ -97,8 +121,12 @@ class Database:
                    (supplier, supplier_product_id, name_ja, name_en,
                     description_ja, description_en, category,
                     wholesale_price_jpy, weight_g, image_urls,
-                    stock_status, last_stock_check, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    stock_status, product_url, supplier_id, shop_name,
+                    spec_text, reference_price_jpy, netsea_category_id,
+                    direct_send_flag, image_copy_flag,
+                    deal_net_shop_flag, deal_net_auction_flag,
+                    last_stock_check, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(supplier_product_id) DO UPDATE SET
                     name_ja = excluded.name_ja,
                     description_ja = excluded.description_ja,
@@ -106,6 +134,16 @@ class Database:
                     weight_g = excluded.weight_g,
                     image_urls = excluded.image_urls,
                     stock_status = excluded.stock_status,
+                    product_url = excluded.product_url,
+                    supplier_id = excluded.supplier_id,
+                    shop_name = excluded.shop_name,
+                    spec_text = excluded.spec_text,
+                    reference_price_jpy = excluded.reference_price_jpy,
+                    netsea_category_id = excluded.netsea_category_id,
+                    direct_send_flag = excluded.direct_send_flag,
+                    image_copy_flag = excluded.image_copy_flag,
+                    deal_net_shop_flag = excluded.deal_net_shop_flag,
+                    deal_net_auction_flag = excluded.deal_net_auction_flag,
                     last_stock_check = excluded.last_stock_check,
                     updated_at = excluded.updated_at""",
                 (
@@ -120,6 +158,16 @@ class Database:
                     product.get("weight_g"),  # NULLのまま保持（0にしない）
                     image_urls,
                     product.get("stock_status", "in_stock"),
+                    product.get("product_url"),
+                    product.get("supplier_id"),
+                    product.get("shop_name"),
+                    product.get("spec_text"),
+                    product.get("reference_price_jpy"),
+                    product.get("netsea_category_id"),
+                    product.get("direct_send_flag"),
+                    product.get("image_copy_flag"),
+                    product.get("deal_net_shop_flag"),
+                    product.get("deal_net_auction_flag"),
                     product.get("last_stock_check", datetime.now().isoformat()),
                     datetime.now().isoformat(),
                 ),

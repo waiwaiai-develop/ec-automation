@@ -18,6 +18,8 @@
     python -m src.cli.main notify test
     python -m src.cli.main notify daily
     python -m src.cli.main auth setup --platform ebay [--sandbox]
+    python -m src.cli.main auth init --platform base
+    python -m src.cli.main auth refresh --platform base
     python -m src.cli.main auth status --platform ebay
     python -m src.cli.main dashboard update
 """
@@ -28,6 +30,7 @@ import sys
 from pathlib import Path
 
 import click
+import httpx
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
@@ -123,33 +126,50 @@ def netsea():
 
 
 @netsea.command("import")
-@click.option("-k", "--keyword", required=True, help="検索キーワード（例: 手ぬぐい）")
-@click.option("-l", "--limit", default=20, help="取得件数（デフォルト: 20）")
+@click.option("-s", "--supplier-id", required=True, help="サプライヤーID（カンマ区切りで複数指定可）")
+@click.option("-c", "--category-id", type=int, default=None, help="カテゴリID（例: 21205=手ぬぐい）")
+@click.option("-k", "--keyword", default=None, help="キーワードフィルター（商品名で絞り込み）")
+@click.option("-l", "--limit", default=100, help="表示件数（デフォルト: 100）")
 @click.option("--dry-run", is_flag=True, help="DBに保存せずプレビューのみ")
-def netsea_import(keyword: str, limit: int, dry_run: bool):
-    """NETSEA商品をインポート"""
+def netsea_import(supplier_id, category_id, keyword, limit, dry_run):
+    """NETSEA商品をインポート（サプライヤーID指定）"""
     from src.scraper.netsea import NetseaClient
 
     try:
         client = NetseaClient()
     except ValueError as e:
-        console.print(f"[red]エラー: {e}[/red]")
+        console.print("[red]エラー: {}[/red]".format(e))
         return
 
-    console.print(f"[bold]検索:[/bold] {keyword} (上限: {limit}件)")
+    label_parts = ["supplier={}".format(supplier_id)]
+    if category_id:
+        label_parts.append("category={}".format(category_id))
+    if keyword:
+        label_parts.append("keyword={}".format(keyword))
+    console.print("[bold]検索:[/bold] {} (上限: {}件)".format(", ".join(label_parts), limit))
 
     try:
-        products = asyncio.run(client.search_and_map(keyword, limit=limit))
+        products = client.get_items_and_map(
+            supplier_ids=supplier_id,
+            category_id=category_id,
+            keyword=keyword,
+        )
     except Exception as e:
-        console.print(f"[red]API エラー: {e}[/red]")
+        console.print("[red]API エラー: {}[/red]".format(e))
         return
 
     if not products:
         console.print("[yellow]商品が見つかりませんでした。[/yellow]")
         return
 
+    # 表示件数制限
+    products_display = products[:limit]
+
     # テーブル表示
-    table = Table(title=f"NETSEA検索結果: {keyword}")
+    title = "NETSEA商品"
+    if keyword:
+        title += " ({})".format(keyword)
+    table = Table(title=title)
     table.add_column("#", justify="right", style="dim")
     table.add_column("商品名", max_width=40)
     table.add_column("カテゴリ", style="cyan")
@@ -157,10 +177,12 @@ def netsea_import(keyword: str, limit: int, dry_run: bool):
     table.add_column("重量(g)", justify="right")
     table.add_column("在庫", style="yellow")
 
-    for i, product in enumerate(products, 1):
+    for i, product in enumerate(products_display, 1):
+        name = product["name_ja"]
+        name_display = (name[:37] + "...") if len(name) > 40 else name
         table.add_row(
             str(i),
-            (product["name_ja"][:37] + "...") if len(product["name_ja"]) > 40 else product["name_ja"],
+            name_display,
             product.get("category") or "-",
             str(product["wholesale_price_jpy"]) if product.get("wholesale_price_jpy") else "-",
             str(product["weight_g"]) if product.get("weight_g") else "-",
@@ -168,9 +190,10 @@ def netsea_import(keyword: str, limit: int, dry_run: bool):
         )
 
     console.print(table)
+    console.print("[dim]取得: {}件 / 表示: {}件[/dim]".format(len(products), len(products_display)))
 
     if dry_run:
-        console.print(f"[dim]（dry-run: DB保存スキップ）[/dim]")
+        console.print("[dim]（dry-run: DB保存スキップ）[/dim]")
         return
 
     # DB保存
@@ -182,31 +205,45 @@ def netsea_import(keyword: str, limit: int, dry_run: bool):
             database.upsert_product(product)
             saved += 1
         except Exception as e:
-            console.print(f"[red]保存エラー ({product['name_ja'][:20]}): {e}[/red]")
+            console.print("[red]保存エラー ({name}): {err}[/red]".format(
+                name=product['name_ja'][:20], err=e
+            ))
 
-    console.print(f"[green]✓[/green] {saved}/{len(products)}件をDBに保存しました。")
+    console.print("[green]✓[/green] {}/{}件をDBに保存しました。".format(saved, len(products)))
 
 
 @netsea.command("categories")
-def netsea_categories():
+@click.option("-k", "--keyword", default=None, help="カテゴリ名で絞り込み")
+def netsea_categories(keyword):
     """NETSEAカテゴリ一覧を取得"""
     from src.scraper.netsea import NetseaClient
 
     try:
         client = NetseaClient()
     except ValueError as e:
-        console.print(f"[red]エラー: {e}[/red]")
+        console.print("[red]エラー: {}[/red]".format(e))
         return
 
     try:
-        categories = asyncio.run(client.get_categories())
+        categories = client.get_categories()
     except Exception as e:
-        console.print(f"[red]API エラー: {e}[/red]")
+        console.print("[red]API エラー: {}[/red]".format(e))
         return
 
     if not categories:
         console.print("[yellow]カテゴリが取得できませんでした。[/yellow]")
         return
+
+    # キーワードフィルター
+    if keyword:
+        kw_lower = keyword.lower()
+        categories = [
+            c for c in categories
+            if kw_lower in c.get("name", "").lower()
+        ]
+        if not categories:
+            console.print("[yellow]'{}'に一致するカテゴリがありません。[/yellow]".format(keyword))
+            return
 
     table = Table(title="NETSEAカテゴリ")
     table.add_column("ID", justify="right")
@@ -218,6 +255,44 @@ def netsea_categories():
         table.add_row(cat_id, cat_name)
 
     console.print(table)
+    console.print("[dim]{}件[/dim]".format(len(categories)))
+
+
+@netsea.command("suppliers")
+def netsea_suppliers():
+    """NETSEAサプライヤー一覧を取得"""
+    from src.scraper.netsea import NetseaClient
+
+    try:
+        client = NetseaClient()
+    except ValueError as e:
+        console.print("[red]エラー: {}[/red]".format(e))
+        return
+
+    try:
+        suppliers = client.get_suppliers()
+    except Exception as e:
+        console.print("[red]API エラー: {}[/red]".format(e))
+        return
+
+    if not suppliers:
+        console.print("[yellow]サプライヤーが取得できませんでした。[/yellow]")
+        return
+
+    table = Table(title="NETSEAサプライヤー")
+    table.add_column("ID", justify="right")
+    table.add_column("法人名")
+    table.add_column("店舗名", max_width=40)
+
+    for s in suppliers:
+        table.add_row(
+            str(s.get("id", "-")),
+            s.get("corp_name", "-"),
+            s.get("trade_name", "-"),
+        )
+
+    console.print(table)
+    console.print("[dim]{}件[/dim]".format(len(suppliers)))
 
 
 # --- research コマンド ---
@@ -900,6 +975,76 @@ def auth_setup(platform_name, sandbox):
     console.print("[cyan]{}[/cyan]".format(cmd))
 
 
+@auth.command("init")
+@click.option("--platform", "platform_name", required=True,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム")
+def auth_init(platform_name):
+    """.envのトークンからトークンファイルを初期化"""
+    from src.auth.oauth_manager import OAuthTokenManager
+
+    manager = OAuthTokenManager(platform_name)
+
+    # 既存トークンがある場合は確認
+    existing = manager.load_token()
+    if existing:
+        console.print("[yellow]既存トークンファイルがあります: {}[/yellow]".format(manager.token_path))
+        if not click.confirm("上書きしますか？"):
+            console.print("[dim]中止しました。[/dim]")
+            return
+
+    if platform_name == "base":
+        token_data = manager._bootstrap_base_from_env()
+        if not token_data:
+            console.print("[red]BASE_ACCESS_TOKEN / BASE_REFRESH_TOKEN が.envに設定されていません。[/red]")
+            return
+        console.print("[green]BASEトークンファイルを作成しました。[/green]")
+        console.print("  ファイル: {}".format(manager.token_path))
+        console.print("[dim]初回API呼び出し時に自動リフレッシュされます。[/dim]")
+    else:
+        console.print("[yellow]{}はOAuth認証フローが必要です。[/yellow]".format(platform_name))
+        console.print("  python scripts/oauth_setup.py --platform {}".format(platform_name))
+
+
+@auth.command("refresh")
+@click.option("--platform", "platform_name", required=True,
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム")
+def auth_refresh(platform_name):
+    """トークンを手動リフレッシュ"""
+    from src.auth.oauth_manager import OAuthTokenManager
+
+    manager = OAuthTokenManager(platform_name)
+    token_data = manager.load_token()
+
+    if not token_data:
+        # BASEは.envからブートストラップを試みる
+        if platform_name == "base":
+            token_data = manager._bootstrap_base_from_env()
+        if not token_data:
+            console.print("[red]トークンが未設定です。先に `auth init` を実行してください。[/red]")
+            return
+
+    console.print("[dim]リフレッシュ中...[/dim]")
+    try:
+        new_token = manager.refresh_token(token_data)
+    except httpx.HTTPStatusError as e:
+        console.print("[red]リフレッシュ失敗 (HTTP {}): {}[/red]".format(
+            e.response.status_code, e.response.text[:200]
+        ))
+        return
+    except Exception as e:
+        console.print("[red]リフレッシュ失敗: {}[/red]".format(e))
+        return
+
+    console.print("[green]トークンをリフレッシュしました。[/green]")
+
+    from datetime import datetime
+    expires_at = new_token.get("expires_at", 0)
+    if expires_at:
+        expires_dt = datetime.fromtimestamp(expires_at)
+        console.print("  有効期限: {}".format(expires_dt.strftime("%Y-%m-%d %H:%M:%S")))
+    console.print("  ファイル: {}".format(manager.token_path))
+
+
 @auth.command("status")
 @click.option("--platform", "platform_name", required=True,
               type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム")
@@ -912,6 +1057,8 @@ def auth_status(platform_name):
 
     if not token_data:
         console.print("[red]{}のトークンが未設定です。[/red]".format(platform_name))
+        if platform_name == "base":
+            console.print("[dim]`auth init --platform base` で.envから初期化できます。[/dim]")
         return
 
     expired = manager.is_token_expired(token_data)
@@ -924,12 +1071,17 @@ def auth_status(platform_name):
     table.add_row("状態", "[red]期限切れ[/red]" if expired else "[green]有効[/green]")
     table.add_row("リフレッシュ", "あり" if token_data.get("refresh_token") else "なし")
 
-    import time
+    import time as _time
     expires_at = token_data.get("expires_at", 0)
     if expires_at:
         from datetime import datetime
         expires_dt = datetime.fromtimestamp(expires_at)
         table.add_row("有効期限", expires_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        # 残り時間
+        remaining = expires_at - _time.time()
+        if remaining > 0:
+            mins = int(remaining // 60)
+            table.add_row("残り", "{}分".format(mins))
 
     saved_at = token_data.get("saved_at", 0)
     if saved_at:
@@ -938,6 +1090,11 @@ def auth_status(platform_name):
         table.add_row("保存日時", saved_dt.strftime("%Y-%m-%d %H:%M:%S"))
 
     console.print(table)
+
+    if expired and token_data.get("refresh_token"):
+        console.print("[yellow]期限切れです。`auth refresh --platform {}` で更新できます。[/yellow]".format(
+            platform_name
+        ))
 
 
 # --- dashboard コマンド ---
@@ -985,6 +1142,22 @@ def dashboard_update(sheet):
 
     except Exception as e:
         console.print("[red]更新エラー: {}[/red]".format(e))
+
+
+# --- web コマンド ---
+
+@cli.command("web")
+@click.option("-p", "--port", default=5000, type=int, help="ポート番号（デフォルト: 5000）")
+@click.option("--host", default="127.0.0.1", help="ホスト（デフォルト: 127.0.0.1）")
+def web(port, host):
+    """Webダッシュボードを起動"""
+    from src.dashboard.web import create_app
+
+    app = create_app()
+    console.print("[bold]Webダッシュボード起動[/bold]")
+    console.print("  URL: http://{}:{}".format(host, port))
+    console.print("  [dim]Ctrl+C で停止[/dim]")
+    app.run(host=host, port=port, debug=True)
 
 
 # --- ヘルパー関数 ---

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">ダッシュボード</h2>
+
+<!-- 日次サマリー -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card primary">
+            <div class="card-body">
+                <div class="text-muted small">商品数</div>
+                <div class="fs-3 fw-bold">{{ stats.get('products', 0)|int }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card success">
+            <div class="card-body">
+                <div class="text-muted small">アクティブ出品</div>
+                <div class="fs-3 fw-bold">{{ daily.active_listings }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card warning">
+            <div class="card-body">
+                <div class="text-muted small">本日の注文</div>
+                <div class="fs-3 fw-bold">{{ daily.orders_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card info">
+            <div class="card-body">
+                <div class="text-muted small">本日の売上</div>
+                <div class="fs-3 fw-bold">${{ "%.2f"|format(daily.revenue_usd) }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- テーブル別レコード数 -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">テーブル別レコード数</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr><th>テーブル</th><th class="text-end">件数</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for key, value in stats.items() %}
+                        {% if value is number %}
+                        <tr>
+                            <td>{{ key }}</td>
+                            <td class="text-end">{{ value }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- カテゴリ別内訳 -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">カテゴリ別商品数</div>
+            <div class="card-body">
+                {% set cat_data = stats.get('products_by_category', {}) %}
+                {% if cat_data %}
+                    {% set max_count = cat_data.values()|list|max if cat_data.values()|list else 1 %}
+                    {% set colors = ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#0dcaf0', '#6f42c1', '#fd7e14'] %}
+                    {% for cat, cnt in cat_data.items() %}
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>{{ cat }}</span>
+                            <span>{{ cnt }}件</span>
+                        </div>
+                        <div class="category-bar" style="width: {{ (cnt / max_count * 100)|int }}%; background-color: {{ colors[loop.index0 % colors|length] }};"></div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">データなし</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 日次サマリー詳細 -->
+<div class="row g-4 mt-2">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">日次サマリー（{{ daily.date }}）</div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <div class="text-muted small">注文数</div>
+                        <div class="fs-4">{{ daily.orders_count }}</div>
+                    </div>
+                    <div class="col">
+                        <div class="text-muted small">売上</div>
+                        <div class="fs-4">${{ "%.2f"|format(daily.revenue_usd) }}</div>
+                    </div>
+                    <div class="col">
+                        <div class="text-muted small">利益</div>
+                        <div class="fs-4">${{ "%.2f"|format(daily.profit_usd) }}</div>
+                    </div>
+                    <div class="col">
+                        <div class="text-muted small">在庫変動</div>
+                        <div class="fs-4">{{ daily.stock_changes }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

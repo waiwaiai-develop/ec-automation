@@ -36,6 +36,7 @@ etsy:
 # BASE設定
 base:
   api_url: https://api.thebase.in/1
+  redirect_uri: https://script.google.com/macros/s/AKfycbwFuqgJPjUfP3g-TuEDNaSomc613rauOGdVlYetjuE6zdNUBHnTkY5_XfBK20DZeCRA/exec
 
 # LINE Notify設定
 line_notify:
@@ -44,7 +45,7 @@ line_notify:
 # Google Sheets設定
 google_sheets:
   # サービスアカウントJSONのパス
-  service_account_path: config/google_sa.json
+  service_account_path: service-account-ec-automation.json
 
 # 同期設定
 sync:

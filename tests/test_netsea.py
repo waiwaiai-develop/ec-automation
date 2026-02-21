@@ -123,6 +123,10 @@ class TestMapToDb:
                 {"price": 500},
                 {"price": 700},
             ],
+            "direct_send_flag": "Y",
+            "image_copy_flag": "Y",
+            "deal_net_shop_flag": "Y",
+            "deal_net_auction_flag": "N",
         }
 
         result = client.map_to_db(netsea_item)
@@ -134,6 +138,11 @@ class TestMapToDb:
         assert result["wholesale_price_jpy"] == 500  # 最安SKU
         assert result["weight_g"] == 50
         assert len(result["image_urls"]) == 2
+        # DSフラグ
+        assert result["direct_send_flag"] == "Y"
+        assert result["image_copy_flag"] == "Y"
+        assert result["deal_net_shop_flag"] == "Y"
+        assert result["deal_net_auction_flag"] == "N"
 
     def test_min_price_from_sets(self):
         """sets内の最安価格を卸値とする"""

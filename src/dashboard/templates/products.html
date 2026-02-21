@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}商品一覧{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>商品一覧</h2>
+    <span class="text-muted">{{ products|length }}件表示</span>
+</div>
+
+<!-- フィルター -->
+<form method="get" class="row g-2 mb-4">
+    <div class="col-auto">
+        <select name="category" class="form-select form-select-sm">
+            <option value="">全カテゴリ</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}" {% if current_category == cat %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="stock_status" class="form-select form-select-sm">
+            <option value="">全在庫状態</option>
+            <option value="in_stock" {% if current_stock == 'in_stock' %}selected{% endif %}>在庫あり</option>
+            <option value="out_of_stock" {% if current_stock == 'out_of_stock' %}selected{% endif %}>在庫切れ</option>
+            <option value="discontinued" {% if current_stock == 'discontinued' %}selected{% endif %}>廃番</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <div class="form-check form-check-inline pt-1">
+            <input class="form-check-input" type="checkbox" name="ds_only" value="1" id="dsOnly"
+                   {% if current_ds_only == '1' %}checked{% endif %}>
+            <label class="form-check-label" for="dsOnly">DS対応のみ</label>
+        </div>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">絞り込み</button>
+        <a href="/products" class="btn btn-sm btn-outline-secondary">リセット</a>
+    </div>
+</form>
+
+<!-- 商品テーブル -->
+<div class="table-responsive">
+    <table class="table table-hover table-sm">
+        <thead class="table-light">
+            <tr>
+                <th>ID</th>
+                <th>画像</th>
+                <th>商品名</th>
+                <th>カテゴリ</th>
+                <th class="text-end">卸値(円)</th>
+                <th class="text-end">上代(円)</th>
+                <th class="text-end">重量(g)</th>
+                <th>在庫</th>
+                <th>直送</th>
+                <th>画像</th>
+                <th>ネット販売</th>
+                <th>ショップ</th>
+                <th>リンク</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in products %}
+            <tr>
+                <td>{{ p.id }}</td>
+                <td>
+                    {% set imgs = p.image_urls|parse_images %}
+                    {% if imgs %}
+                    <img src="{{ imgs[0] }}" class="thumb-img" alt="" loading="lazy"
+                         onerror="this.style.display='none'">
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="/products/{{ p.id }}">
+                        {{ p.name_ja[:50] }}{% if p.name_ja|length > 50 %}...{% endif %}
+                    </a>
+                </td>
+                <td>{{ p.category or '-' }}</td>
+                <td class="text-end">{{ p.wholesale_price_jpy|format_price }}</td>
+                <td class="text-end">{{ p.reference_price_jpy|format_price }}</td>
+                <td class="text-end">{{ p.weight_g if p.weight_g is not none else '-' }}</td>
+                <td>
+                    <span class="badge badge-{{ p.stock_status or 'in_stock' }}">
+                        {{ p.stock_status or 'in_stock' }}
+                    </span>
+                </td>
+                <td><span class="badge bg-{{ 'success' if p.direct_send_flag == 'Y' else 'danger' }}">{{ p.direct_send_flag or '-' }}</span></td>
+                <td><span class="badge bg-{{ 'success' if p.image_copy_flag == 'Y' else 'danger' }}">{{ p.image_copy_flag or '-' }}</span></td>
+                <td><span class="badge bg-{{ 'success' if p.deal_net_shop_flag == 'Y' else 'danger' }}">{{ p.deal_net_shop_flag or '-' }}</span></td>
+                <td>{{ (p.shop_name or '-')[:15] }}</td>
+                <td>
+                    {% if p.product_url %}
+                    <a href="{{ p.product_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">NETSEA</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if not products %}
+<div class="text-center text-muted py-5">
+    <p>商品がありません。<code>python -m src.cli.main netsea import</code> で取得してください。</p>
+</div>
+{% endif %}
+{% endblock %}

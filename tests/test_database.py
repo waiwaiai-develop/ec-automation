@@ -78,6 +78,10 @@ class TestUpsertProduct:
             "weight_g": 50,
             "image_urls": ["https://example.com/img1.jpg"],
             "stock_status": "in_stock",
+            "direct_send_flag": "Y",
+            "image_copy_flag": "Y",
+            "deal_net_shop_flag": "Y",
+            "deal_net_auction_flag": "N",
         }
         product_id = db.upsert_product(product)
         assert product_id > 0
@@ -88,6 +92,11 @@ class TestUpsertProduct:
         assert products[0]["name_ja"] == "和柄手ぬぐい 富士山"
         assert products[0]["wholesale_price_jpy"] == 500
         assert products[0]["weight_g"] == 50
+        # DSフラグ
+        assert products[0]["direct_send_flag"] == "Y"
+        assert products[0]["image_copy_flag"] == "Y"
+        assert products[0]["deal_net_shop_flag"] == "Y"
+        assert products[0]["deal_net_auction_flag"] == "N"
 
     def test_upsert_updates_existing(self, db):
         """既存商品の更新（同じsupplier_product_id）"""
