@@ -676,6 +676,119 @@ class Database:
             )
             return cursor.rowcount
 
+    # --- SNS投稿 CRUD ---
+
+    def create_sns_post(self, post: Dict[str, Any]) -> int:
+        """SNS投稿を作成。post IDを返す"""
+        with self.connect() as conn:
+            image_urls = post.get("image_urls")
+            if isinstance(image_urls, list):
+                image_urls = json.dumps(image_urls)
+
+            cursor = conn.execute(
+                """INSERT INTO sns_posts
+                   (product_id, platform, body, image_urls, hashtags,
+                    status, scheduled_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    post.get("product_id"),
+                    post["platform"],
+                    post.get("body", ""),
+                    image_urls,
+                    post.get("hashtags"),
+                    post.get("status", "draft"),
+                    post.get("scheduled_at"),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_sns_post(self, post_id: int) -> Optional[dict]:
+        """SNS投稿をIDで取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM sns_posts WHERE id = ?",
+                (post_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_sns_posts(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """SNS投稿一覧を取得（date_from/date_toで予約日時フィルター可）"""
+        query = "SELECT * FROM sns_posts WHERE 1=1"
+        params = []  # type: List[Any]
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if date_from:
+            query += " AND scheduled_at >= ?"
+            params.append(date_from)
+        if date_to:
+            query += " AND scheduled_at < ?"
+            params.append(date_to)
+
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_sns_post(self, post_id: int, updates: Dict[str, Any]) -> bool:
+        """SNS投稿を更新"""
+        if not updates:
+            return False
+
+        allowed = {
+            "platform", "body", "image_urls", "hashtags",
+            "status", "scheduled_at", "posted_at",
+            "platform_post_id", "error_message",
+        }
+
+        set_clauses = []
+        params = []  # type: List[Any]
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            if isinstance(value, list):
+                value = json.dumps(value)
+            set_clauses.append("{} = ?".format(key))
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(post_id)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE sns_posts SET {} WHERE id = ?".format(
+                    ", ".join(set_clauses)
+                ),
+                params,
+            )
+            return cursor.rowcount > 0
+
+    def delete_sns_post(self, post_id: int) -> bool:
+        """SNS投稿を削除"""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM sns_posts WHERE id = ?",
+                (post_id,),
+            )
+            return cursor.rowcount > 0
+
     def get_daily_summary(self, date: Optional[str] = None) -> Dict[str, Any]:
         """日次サマリーを取得"""
         if date is None:

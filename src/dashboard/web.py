@@ -1,7 +1,10 @@
-"""Webダッシュボード（Flask + Bootstrap 5）
+"""Webダッシュボード（Flask + React SPA / Bootstrap 5）
 
 ブラウザでDB内容を閲覧・操作するためのWeb UI。
-起動: python -m src.cli.main web --port 5000
+起動: python -m src.cli.main web --port 8080
+- React SPA: /app 以下で frontend/dist/ を配信
+- レガシーUI: / 以下で Jinja2 テンプレートを配信
+- JSON API: /api/* でフロントエンドにデータを提供
 """
 
 import json
@@ -11,7 +14,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from src.db.database import Database
 
@@ -20,10 +23,26 @@ def create_app(db_path=None):
     # type: (Optional[str]) -> Flask
     """Flaskアプリファクトリ"""
     template_dir = os.path.join(os.path.dirname(__file__), "templates")
-    app = Flask(__name__, template_folder=template_dir)
+    # frontend/dist/ のパスを解決
+    project_root = Path(__file__).parent.parent.parent
+    frontend_dist = str(project_root / "frontend" / "dist")
+    app = Flask(__name__, template_folder=template_dir,
+                static_folder=None)  # 静的ファイルはSPA用に別途設定
 
     # データベース初期化
     db = Database(db_path=db_path)
+
+    # --- 開発用CORS ---
+    @app.after_request
+    def add_cors_headers(response):
+        """開発時のみ Vite dev server からのリクエストを許可"""
+        if app.debug:
+            origin = request.headers.get("Origin", "")
+            if origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return response
 
     def parse_image_urls(raw):
         # type: (Optional[str]) -> list
@@ -243,7 +262,146 @@ def create_app(db_path=None):
                                    error="トークン交換エラー: {}".format(str(e)),
                                    auth_url=None, callback_url=None)
 
-    # --- APIエンドポイント ---
+    # --- SPA配信ルート ---
+
+    @app.route("/app")
+    @app.route("/app/<path:path>")
+    def serve_spa(path=""):
+        """React SPAを配信（/app 以下のすべてのパスで index.html を返す）"""
+        if path and os.path.isfile(os.path.join(frontend_dist, path)):
+            return send_from_directory(frontend_dist, path)
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.isfile(index_path):
+            return send_from_directory(frontend_dist, "index.html")
+        return "フロントエンドがビルドされていません。cd frontend && npm run build を実行してください。", 404
+
+    # --- GET JSON API ---
+
+    @app.route("/api/dashboard")
+    def api_dashboard():
+        """ダッシュボード統計データ"""
+        stats = db.get_stats()
+        daily = db.get_daily_summary()
+        return jsonify({"stats": stats, "daily_summary": daily})
+
+    @app.route("/api/products")
+    def api_products_list():
+        """商品リスト（フィルター付き）"""
+        category = request.args.get("category", "").strip() or None
+        stock_status = request.args.get("stock_status", "").strip() or None
+        ds_only = request.args.get("ds_only", "").strip()
+        limit = request.args.get("limit", "100", type=str)
+        try:
+            limit_int = int(limit)
+        except ValueError:
+            limit_int = 100
+
+        # カテゴリ一覧
+        categories = []
+        try:
+            with db.connect() as conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category"
+                ).fetchall()
+                categories = [row["category"] for row in rows]
+        except Exception:
+            pass
+
+        # 商品クエリ
+        query = "SELECT * FROM products WHERE 1=1"
+        params = []
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        if stock_status:
+            query += " AND stock_status = ?"
+            params.append(stock_status)
+        if ds_only == "1":
+            query += (" AND direct_send_flag = 'Y'"
+                      " AND image_copy_flag = 'Y'"
+                      " AND deal_net_shop_flag = 'Y'")
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit_int)
+
+        with db.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            product_list = [dict(row) for row in rows]
+
+        return jsonify({
+            "products": product_list,
+            "categories": categories,
+            "total": len(product_list),
+        })
+
+    @app.route("/api/products/<int:product_id>")
+    def api_product_detail(product_id):
+        """商品詳細（画像・利益計算・リスティング含む）"""
+        product = db.get_product(product_id)
+        if not product:
+            return jsonify({"error": "商品ID {} が見つかりません".format(product_id)}), 404
+
+        images = parse_image_urls(product.get("image_urls"))
+
+        # 利益計算
+        profit_info = None
+        wholesale = product.get("wholesale_price_jpy")
+        if wholesale:
+            try:
+                from src.ai.profit_calculator import calculate_profit
+                profit_info = []
+                for price in [15.0, 20.0, 25.0, 30.0]:
+                    calc = calculate_profit(
+                        wholesale_jpy=wholesale,
+                        sale_usd=price,
+                        weight_g=product.get("weight_g"),
+                        platform="ebay",
+                    )
+                    profit_info.append(calc)
+            except Exception:
+                pass
+
+        listings = db.get_listings(product_id=product_id)
+
+        return jsonify({
+            "product": product,
+            "images": images,
+            "profit_info": profit_info,
+            "listings": listings,
+        })
+
+    @app.route("/api/listings")
+    def api_listings_list():
+        """リスティング一覧"""
+        platform = request.args.get("platform", "").strip() or None
+        status = request.args.get("status", "").strip() or None
+        limit = request.args.get("limit", "100", type=str)
+        try:
+            limit_int = int(limit)
+        except ValueError:
+            limit_int = 100
+
+        listing_list = db.get_listings(
+            platform=platform, status=status, limit=limit_int
+        )
+        return jsonify({"listings": listing_list, "total": len(listing_list)})
+
+    @app.route("/api/orders")
+    def api_orders_list():
+        """注文一覧"""
+        platform = request.args.get("platform", "").strip() or None
+        status = request.args.get("status", "").strip() or None
+        limit = request.args.get("limit", "100", type=str)
+        try:
+            limit_int = int(limit)
+        except ValueError:
+            limit_int = 100
+
+        order_list = db.get_orders(
+            platform=platform, status=status, limit=limit_int
+        )
+        return jsonify({"orders": order_list, "total": len(order_list)})
+
+    # --- POST APIエンドポイント ---
 
     @app.route("/api/products/import-netsea-url", methods=["POST"])
     def api_import_netsea_url():
@@ -678,6 +836,140 @@ def create_app(db_path=None):
             "success": True,
             "results": results,
             "message": "{}/{}件の出品に成功しました".format(success_count, len(product_ids)),
+        })
+
+    # --- SNS APIエンドポイント ---
+
+    @app.route("/api/sns/posts")
+    def api_sns_posts_list():
+        """SNS投稿一覧（date_from/date_toで予約日時範囲フィルター可）"""
+        platform = request.args.get("platform", "").strip() or None
+        status = request.args.get("status", "").strip() or None
+        date_from = request.args.get("date_from", "").strip() or None
+        date_to = request.args.get("date_to", "").strip() or None
+        limit = request.args.get("limit", "50", type=str)
+        try:
+            limit_int = int(limit)
+        except ValueError:
+            limit_int = 50
+
+        posts = db.get_sns_posts(
+            platform=platform, status=status,
+            date_from=date_from, date_to=date_to,
+            limit=limit_int,
+        )
+        return jsonify({"posts": posts, "total": len(posts)})
+
+    @app.route("/api/sns/posts", methods=["POST"])
+    def api_sns_posts_create():
+        """SNS投稿保存（下書き/予約）"""
+        data = request.get_json(force=True)
+        platform = (data.get("platform") or "").strip()
+        body = (data.get("body") or "").strip()
+
+        if platform not in ("twitter", "instagram", "threads"):
+            return jsonify({"error": "platformはtwitter/instagram/threadsのいずれかです"}), 400
+        if not body:
+            return jsonify({"error": "本文が空です"}), 400
+
+        # プラットフォーム別文字数制限
+        char_limits = {"twitter": 280, "instagram": 2200, "threads": 500}
+        limit = char_limits.get(platform, 280)
+        if len(body) > limit:
+            return jsonify({"error": "本文が{}文字制限を超えています（{}文字）".format(limit, len(body))}), 400
+
+        post_data = {
+            "product_id": data.get("product_id"),
+            "platform": platform,
+            "body": body,
+            "hashtags": data.get("hashtags"),
+            "scheduled_at": data.get("scheduled_at"),
+            "status": data.get("status", "draft"),
+        }
+
+        # 商品に紐づく画像を自動設定
+        product_id = data.get("product_id")
+        if product_id:
+            product = db.get_product(int(product_id))
+            if product and product.get("image_urls"):
+                post_data["image_urls"] = product["image_urls"]
+
+        post_id = db.create_sns_post(post_data)
+        post = db.get_sns_post(post_id)
+
+        return jsonify({
+            "success": True,
+            "post": post,
+            "message": "SNS投稿を保存しました",
+        })
+
+    @app.route("/api/sns/posts/<int:post_id>/publish", methods=["POST"])
+    def api_sns_post_publish(post_id):
+        """SNS投稿を実行（スタブ: ステータスをpostedに変更）"""
+        post = db.get_sns_post(post_id)
+        if not post:
+            return jsonify({"error": "投稿ID {} が見つかりません".format(post_id)}), 404
+
+        from datetime import datetime as dt
+        db.update_sns_post(post_id, {
+            "status": "posted",
+            "posted_at": dt.now().isoformat(),
+            "platform_post_id": "stub_{}".format(post_id),
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "投稿しました（スタブ）",
+        })
+
+    @app.route("/api/sns/posts/<int:post_id>/delete", methods=["POST"])
+    def api_sns_post_delete(post_id):
+        """SNS投稿を削除"""
+        post = db.get_sns_post(post_id)
+        if not post:
+            return jsonify({"error": "投稿ID {} が見つかりません".format(post_id)}), 404
+
+        db.delete_sns_post(post_id)
+        return jsonify({
+            "success": True,
+            "message": "投稿を削除しました",
+        })
+
+    @app.route("/api/sns/generate", methods=["POST"])
+    def api_sns_generate():
+        """SNS投稿文をAI生成（スタブ: テンプレ返却）"""
+        data = request.get_json(force=True)
+        product_id = data.get("product_id")
+        platform = data.get("platform", "twitter")
+
+        if not product_id:
+            return jsonify({"error": "product_idは必須です"}), 400
+
+        product = db.get_product(int(product_id))
+        if not product:
+            return jsonify({"error": "商品ID {} が見つかりません".format(product_id)}), 404
+
+        name = product.get("name_ja", "商品")
+        category = product.get("category", "")
+
+        # スタブ: テンプレートで投稿文を生成
+        hashtag_map = {
+            "tenugui": "#手ぬぐい #tenugui #japanesetextile",
+            "furoshiki": "#風呂敷 #furoshiki #japaneseculture",
+            "knife": "#包丁 #japaneseknife #kitchenknife",
+            "incense": "#お香 #incense #japaneseincense",
+            "washi": "#和紙 #washi #japanesepaper",
+        }
+        hashtags = hashtag_map.get(category, "#japan #japanese #madeinjapan")
+
+        body = "{}をご紹介します！日本の伝統的な{}です。海外発送対応。".format(
+            name, category or "文化商品"
+        )
+
+        return jsonify({
+            "success": True,
+            "body": body,
+            "hashtags": hashtags,
         })
 
     @app.route("/api/products/<int:product_id>/profit", methods=["POST"])

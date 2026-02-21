@@ -449,3 +449,337 @@ class TestDatabaseMethods:
         id1 = _insert_sample_product(db, "フラグC", "DB-FLAG-003")
         updated = db.update_product_flags([id1], {"invalid_flag": 1})
         assert updated == 0
+
+
+class TestGetJsonApis:
+    """GET JSON APIテスト"""
+
+    def test_api_dashboard(self, client):
+        """GET /api/dashboard — 統計データ取得"""
+        resp = client.get("/api/dashboard")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stats" in data
+        assert "daily_summary" in data
+        assert "date" in data["daily_summary"]
+
+    def test_api_products_list(self, client, db):
+        """GET /api/products — 商品リスト取得"""
+        _insert_sample_product(db, "APIテスト商品A", "API-001")
+        _insert_sample_product(db, "APIテスト商品B", "API-002")
+
+        resp = client.get("/api/products")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "products" in data
+        assert "categories" in data
+        assert "total" in data
+        assert data["total"] >= 2
+
+    def test_api_products_filter_category(self, client, db):
+        """GET /api/products?category= — カテゴリフィルター"""
+        _insert_sample_product(db, "手ぬぐいAPI", "API-CAT-001")
+
+        resp = client.get("/api/products?category=tenugui")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for p in data["products"]:
+            assert p["category"] == "tenugui"
+
+    def test_api_products_filter_ds_only(self, client, db):
+        """GET /api/products?ds_only=1 — DS対応フィルター"""
+        _insert_sample_product(db, "DS対応API", "API-DS-001")
+
+        resp = client.get("/api/products?ds_only=1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for p in data["products"]:
+            assert p["direct_send_flag"] == "Y"
+
+    def test_api_product_detail(self, client, db):
+        """GET /api/products/<id> — 商品詳細取得"""
+        pid = _insert_sample_product(db, "詳細APIテスト", "API-DETAIL-001")
+
+        resp = client.get("/api/products/{}".format(pid))
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "product" in data
+        assert "images" in data
+        assert "profit_info" in data
+        assert "listings" in data
+        assert data["product"]["name_ja"] == "詳細APIテスト"
+
+    def test_api_product_detail_not_found(self, client):
+        """GET /api/products/<id> — 存在しない商品"""
+        resp = client.get("/api/products/99999")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert "error" in data
+
+    def test_api_listings_list(self, client, db):
+        """GET /api/listings — リスティング一覧"""
+        pid = _insert_sample_product(db, "リスティングAPIテスト", "API-LIST-001")
+        db.create_listing({
+            "product_id": pid,
+            "platform": "ebay",
+            "title_en": "Test Listing",
+            "status": "active",
+            "price_usd": 25.0,
+        })
+
+        resp = client.get("/api/listings")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "listings" in data
+        assert "total" in data
+        assert data["total"] >= 1
+
+    def test_api_listings_filter_platform(self, client, db):
+        """GET /api/listings?platform= — プラットフォームフィルター"""
+        pid = _insert_sample_product(db, "出品フィルターテスト", "API-LIST-FLT-001")
+        db.create_listing({
+            "product_id": pid,
+            "platform": "ebay",
+            "title_en": "eBay Listing",
+            "status": "active",
+        })
+
+        resp = client.get("/api/listings?platform=ebay")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for l in data["listings"]:
+            assert l["platform"] == "ebay"
+
+    def test_api_orders_list(self, client):
+        """GET /api/orders — 注文一覧"""
+        resp = client.get("/api/orders")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "orders" in data
+        assert "total" in data
+
+    def test_api_spa_fallback(self, client):
+        """SPA fallback — /app にアクセスするとHTMLが返る（ビルド済みの場合は200）"""
+        resp = client.get("/app")
+        # ビルド済みなら200、未ビルドなら404
+        assert resp.status_code in (200, 404)
+        if resp.status_code == 200:
+            assert b"html" in resp.data.lower()
+
+    def test_api_spa_subroute_fallback(self, client):
+        """SPA fallback — /app/products など存在しないパスでもindex.htmlを返す"""
+        resp = client.get("/app/products")
+        # ビルド済みなら200（SPA fallback）、未ビルドなら404
+        assert resp.status_code in (200, 404)
+
+
+class TestSnsApi:
+    """SNS投稿APIテスト"""
+
+    def test_sns_posts_empty(self, client):
+        """GET /api/sns/posts — 空の一覧"""
+        resp = client.get("/api/sns/posts")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "posts" in data
+        assert "total" in data
+        assert data["total"] == 0
+
+    def test_sns_create_post(self, client):
+        """POST /api/sns/posts — 投稿保存"""
+        resp = client.post("/api/sns/posts",
+                           data=json.dumps({
+                               "platform": "twitter",
+                               "body": "テスト投稿です",
+                               "hashtags": "#test",
+                           }),
+                           content_type="application/json")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["post"]["platform"] == "twitter"
+        assert data["post"]["status"] == "draft"
+
+    def test_sns_create_invalid_platform(self, client):
+        """POST /api/sns/posts — 無効なプラットフォーム"""
+        resp = client.post("/api/sns/posts",
+                           data=json.dumps({
+                               "platform": "facebook",
+                               "body": "テスト",
+                           }),
+                           content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_sns_create_empty_body(self, client):
+        """POST /api/sns/posts — 本文が空"""
+        resp = client.post("/api/sns/posts",
+                           data=json.dumps({
+                               "platform": "twitter",
+                               "body": "",
+                           }),
+                           content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_sns_create_exceeds_char_limit(self, client):
+        """POST /api/sns/posts — 文字数制限超過"""
+        resp = client.post("/api/sns/posts",
+                           data=json.dumps({
+                               "platform": "twitter",
+                               "body": "x" * 281,
+                           }),
+                           content_type="application/json")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert "文字制限" in data["error"]
+
+    def test_sns_create_with_product(self, client, db):
+        """POST /api/sns/posts — 商品紐付き"""
+        pid = _insert_sample_product(db, "SNSテスト商品", "SNS-001")
+        resp = client.post("/api/sns/posts",
+                           data=json.dumps({
+                               "platform": "instagram",
+                               "body": "商品紹介投稿",
+                               "product_id": pid,
+                           }),
+                           content_type="application/json")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["post"]["product_id"] == pid
+
+    def test_sns_publish(self, client, db):
+        """POST /api/sns/posts/<id>/publish — 投稿実行"""
+        post_id = db.create_sns_post({
+            "platform": "twitter",
+            "body": "公開テスト",
+            "status": "draft",
+        })
+
+        resp = client.post("/api/sns/posts/{}/publish".format(post_id),
+                           data=json.dumps({}),
+                           content_type="application/json")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] is True
+
+        # ステータスがpostedに変わっている
+        post = db.get_sns_post(post_id)
+        assert post["status"] == "posted"
+        assert post["posted_at"] is not None
+
+    def test_sns_publish_not_found(self, client):
+        """POST /api/sns/posts/<id>/publish — 存在しない投稿"""
+        resp = client.post("/api/sns/posts/99999/publish",
+                           data=json.dumps({}),
+                           content_type="application/json")
+        assert resp.status_code == 404
+
+    def test_sns_delete(self, client, db):
+        """POST /api/sns/posts/<id>/delete — 投稿削除"""
+        post_id = db.create_sns_post({
+            "platform": "threads",
+            "body": "削除テスト",
+            "status": "draft",
+        })
+
+        resp = client.post("/api/sns/posts/{}/delete".format(post_id),
+                           data=json.dumps({}),
+                           content_type="application/json")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] is True
+
+        # 削除されている
+        assert db.get_sns_post(post_id) is None
+
+    def test_sns_delete_not_found(self, client):
+        """POST /api/sns/posts/<id>/delete — 存在しない投稿"""
+        resp = client.post("/api/sns/posts/99999/delete",
+                           data=json.dumps({}),
+                           content_type="application/json")
+        assert resp.status_code == 404
+
+    def test_sns_generate(self, client, db):
+        """POST /api/sns/generate — AI投稿文生成（スタブ）"""
+        pid = _insert_sample_product(db, "AI SNSテスト", "SNS-GEN-001")
+
+        resp = client.post("/api/sns/generate",
+                           data=json.dumps({
+                               "product_id": pid,
+                               "platform": "twitter",
+                           }),
+                           content_type="application/json")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert len(data["body"]) > 0
+        assert len(data["hashtags"]) > 0
+
+    def test_sns_generate_no_product(self, client):
+        """POST /api/sns/generate — product_id未指定"""
+        resp = client.post("/api/sns/generate",
+                           data=json.dumps({"platform": "twitter"}),
+                           content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_sns_generate_not_found(self, client):
+        """POST /api/sns/generate — 存在しない商品"""
+        resp = client.post("/api/sns/generate",
+                           data=json.dumps({
+                               "product_id": 99999,
+                               "platform": "twitter",
+                           }),
+                           content_type="application/json")
+        assert resp.status_code == 404
+
+    def test_sns_posts_filter_platform(self, client, db):
+        """GET /api/sns/posts?platform= — プラットフォームフィルター"""
+        db.create_sns_post({"platform": "twitter", "body": "X投稿"})
+        db.create_sns_post({"platform": "instagram", "body": "IG投稿"})
+
+        resp = client.get("/api/sns/posts?platform=twitter")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for p in data["posts"]:
+            assert p["platform"] == "twitter"
+
+    def test_sns_posts_filter_status(self, client, db):
+        """GET /api/sns/posts?status= — ステータスフィルター"""
+        db.create_sns_post({"platform": "twitter", "body": "下書き", "status": "draft"})
+        db.create_sns_post({"platform": "twitter", "body": "投稿済み", "status": "posted"})
+
+        resp = client.get("/api/sns/posts?status=draft")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for p in data["posts"]:
+            assert p["status"] == "draft"
+
+    def test_sns_posts_filter_date_range(self, client, db):
+        """GET /api/sns/posts?date_from=&date_to= — 日付範囲フィルター"""
+        db.create_sns_post({
+            "platform": "twitter", "body": "2月の投稿",
+            "status": "scheduled", "scheduled_at": "2026-02-15T10:00:00",
+        })
+        db.create_sns_post({
+            "platform": "instagram", "body": "3月の投稿",
+            "status": "scheduled", "scheduled_at": "2026-03-05T10:00:00",
+        })
+
+        resp = client.get("/api/sns/posts?date_from=2026-02-01&date_to=2026-03-01")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] >= 1
+        for p in data["posts"]:
+            assert p["scheduled_at"] >= "2026-02-01"
+            assert p["scheduled_at"] < "2026-03-01"
+
+    def test_sns_posts_filter_date_range_empty(self, client, db):
+        """GET /api/sns/posts?date_from=&date_to= — 該当なしの日付範囲"""
+        db.create_sns_post({
+            "platform": "twitter", "body": "範囲外投稿",
+            "status": "scheduled", "scheduled_at": "2026-01-10T10:00:00",
+        })
+
+        resp = client.get("/api/sns/posts?date_from=2026-06-01&date_to=2026-07-01")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 0
