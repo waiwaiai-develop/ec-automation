@@ -1,22 +1,52 @@
 # Plans.md — EC自動化プロジェクト実装計画
 
 > **ソース**: `Japan_DropShip_BattlePlan_v2.docx`
-> **最終更新**: 2026-02-20
+> **最終更新**: 2026-02-21
 > **現在フェーズ**: Phase 1完了 → Phase 2 自動化構築
+
+---
+
+## 次のアクション（今すぐやること）
+
+### 1. NETSEA商品を再インポートしてDSフラグを取得 `cc:NEXT`
+既存商品のDSフラグ（direct_send_flag等）がNULLのため、再取得が必要。
+```bash
+python -m src.cli.main netsea import --supplier-id 79841
+```
+- 再インポート後、Webダッシュボード（`/products?ds_only=1`）でDS対応商品を確認
+- DS非対応（直送不可・画像転載不可）の商品は出品候補から除外
+
+### 2. DS対応商品の選定・出品候補リスト作成 `cc:NEXT`
+- [ ] DS対応フィルターで絞り込んだ商品を確認
+- [ ] 利益率25%以上の商品をピックアップ
+- [ ] BANリスクフィルターを通してVeRO問題がないか検証
+- [ ] 最初の出品候補10〜20商品を決定
+
+### 3. eBayアカウント準備 `cc:NEXT`
+- [ ] eBay Developer Program に登録し API キー取得（Sandbox → Production）
+- [ ] eBay セラーアカウント設定（ビジネスポリシー・返品ポリシー・配送設定）
+- [ ] OAuth 2.0 トークン取得フロー動作確認
+
+### 4. 追加サプライヤーの商品取得 `cc:TODO`
+- [ ] サプライヤー4387の商品を取得・DSフラグ確認
+- [ ] お香カテゴリ（31801）の商品を取得・候補選定
+- [ ] 新規サプライヤーの発掘（NETSEA `/suppliers` で検索）
 
 ---
 
 ## 実装済み（Phase 0-1）
 
-- [x] SQLiteデータベース設計・実装（6テーブル: products, listings, orders, brand_blacklist, country_restrictions, ebay_market_data）
+- [x] SQLiteデータベース設計・実装（7テーブル: products, listings, orders, brand_blacklist, country_restrictions, ebay_market_data, sync_log）
 - [x] NETSEA API クライアント（商品検索・取得・カテゴリ一覧・DB保存）
+- [x] NETSEAドロップシッピングフラグ対応（direct_send_flag, image_copy_flag, deal_net_shop_flag, deal_net_auction_flag）
+- [x] Webダッシュボード（Flask + Bootstrap 5: 商品一覧・詳細・DS対応フィルター）
 - [x] eBay Browse API キーワードリサーチ（価格帯・競合分析・上位商品表示）
 - [x] eBay Playwright スクレイパー（sold count 補足取得）
 - [x] BANリスクフィルター（VeROブランド検出・禁止キーワード・国別配送制限・利益率フィルタ）
 - [x] 利益計算エンジン（送料テーブル・eBay手数料・利益率算出・推奨価格提示）
 - [x] AI商品説明生成（Claude API: 英語タイトル + 説明文 + Item Specifics + SEOタグ13個）
 - [x] CLIツール（db / netsea / research / product の各コマンド群）
-- [x] テスト一式（ban_filter, database, description_generator, netsea, profit）
+- [x] テスト一式（137テスト通過: ban_filter, database, description_generator, netsea, profit 他）
 
 ---
 

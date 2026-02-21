@@ -31,11 +31,10 @@ class BaseShopClient(BasePlatformClient):
         return "base"
 
     def _headers(self) -> Dict[str, str]:
-        """認証ヘッダーを構築"""
+        """認証ヘッダーを構築（Content-Typeはhttpxに任せる）"""
         token = self.token_manager.get_valid_token()
         return {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
+            "Authorization": "Bearer {}".format(token),
         }
 
     def create_listing(self, product: Dict[str, Any],
@@ -67,12 +66,20 @@ class BaseShopClient(BasePlatformClient):
         }
 
         response = httpx.post(
-            f"{self.api_url}/items/add",
+            "{}/items/add".format(self.api_url),
             headers=self._headers(),
-            json=body,
+            data=body,
             timeout=30,
         )
-        response.raise_for_status()
+        if response.status_code != 200:
+            # エラー詳細をレスポンスから取得
+            try:
+                err_body = response.json()
+            except Exception:
+                err_body = response.text
+            raise Exception("BASE API エラー ({}): {}".format(
+                response.status_code, err_body
+            ))
         result = response.json().get("item", {})
 
         item_id = str(result.get("item_id", ""))
@@ -91,20 +98,17 @@ class BaseShopClient(BasePlatformClient):
         }
 
     def _upload_images(self, item_id: str, image_urls: List[str]) -> None:
-        """商品画像をアップロード"""
-        for url in image_urls[:5]:  # BASE上限5枚
+        """商品画像をアップロード（image_url方式）"""
+        for i, url in enumerate(image_urls[:5], start=1):  # BASE上限5枚
             try:
-                img_response = httpx.get(url, timeout=15)
-                if img_response.status_code != 200:
-                    continue
-
-                headers = {"Authorization": f"Bearer {self.token_manager.get_valid_token()}"}
-                files = {"image": ("image.jpg", img_response.content, "image/jpeg")}
                 httpx.post(
-                    f"{self.api_url}/items/add_image",
-                    headers=headers,
-                    data={"item_id": item_id},
-                    files=files,
+                    "{}/items/add_image".format(self.api_url),
+                    headers=self._headers(),
+                    data={
+                        "item_id": item_id,
+                        "image_no": i,
+                        "image_url": url,
+                    },
                     timeout=30,
                 )
             except Exception:
@@ -133,9 +137,9 @@ class BaseShopClient(BasePlatformClient):
             return {"success": True, "updated_fields": []}
 
         response = httpx.post(
-            f"{self.api_url}/items/edit",
+            "{}/items/edit".format(self.api_url),
             headers=self._headers(),
-            json=body,
+            data=body,
             timeout=30,
         )
         response.raise_for_status()
@@ -145,9 +149,9 @@ class BaseShopClient(BasePlatformClient):
     def deactivate_listing(self, platform_listing_id: str) -> Dict[str, Any]:
         """商品を非公開"""
         response = httpx.post(
-            f"{self.api_url}/items/edit",
+            "{}/items/edit".format(self.api_url),
             headers=self._headers(),
-            json={
+            data={
                 "item_id": int(platform_listing_id),
                 "visible": 0,
             },
@@ -159,9 +163,9 @@ class BaseShopClient(BasePlatformClient):
     def activate_listing(self, platform_listing_id: str) -> Dict[str, Any]:
         """商品を再公開"""
         response = httpx.post(
-            f"{self.api_url}/items/edit",
+            "{}/items/edit".format(self.api_url),
             headers=self._headers(),
-            json={
+            data={
                 "item_id": int(platform_listing_id),
                 "visible": 1,
             },
@@ -176,7 +180,7 @@ class BaseShopClient(BasePlatformClient):
             since = datetime.utcnow() - timedelta(hours=24)
 
         response = httpx.get(
-            f"{self.api_url}/orders",
+            "{}/orders".format(self.api_url),
             headers=self._headers(),
             params={"limit": 50},
             timeout=30,
@@ -224,9 +228,9 @@ class BaseShopClient(BasePlatformClient):
                         carrier: str) -> Dict[str, Any]:
         """追跡番号をアップロード"""
         response = httpx.post(
-            f"{self.api_url}/orders/edit_status",
+            "{}/orders/edit_status".format(self.api_url),
             headers=self._headers(),
-            json={
+            data={
                 "order_item_id": platform_order_id,
                 "status": "dispatched",
                 "tracking_number": tracking_number,

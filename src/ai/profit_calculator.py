@@ -43,6 +43,12 @@ PLATFORM_FEES = {
         "payment_fee_rate": ETSY_PAYMENT_FEE_RATE,
         "listing_fee": ETSY_LISTING_FEE_USD,
     },
+    "base": {
+        "fvf_rate": 0.066,           # BASE決済手数料 6.6%
+        "payment_fee_fixed": 0.0,
+        "payment_fee_rate": 0.0,
+        "listing_fee": 0.0,
+    },
 }
 
 

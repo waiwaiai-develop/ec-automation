@@ -72,18 +72,21 @@
                     <th>ネットオークション</th>
                     <td><span class="badge bg-{{ 'success' if product.deal_net_auction_flag == 'Y' else 'danger' }}">{{ product.deal_net_auction_flag or '-' }}</span></td>
                 </tr>
+                <tr>
+                    <th>出品フラグ</th>
+                    <td>
+                        {% if product.list_on_ebay %}<span class="badge bg-primary me-1">eBay</span>{% endif %}
+                        {% if product.list_on_base %}<span class="badge bg-info me-1">BASE</span>{% endif %}
+                        {% if product.list_on_shopify %}<span class="badge bg-success">Shopify</span>{% endif %}
+                        {% if not product.list_on_ebay and not product.list_on_base and not product.list_on_shopify %}
+                        <span class="text-muted">なし</span>
+                        {% endif %}
+                    </td>
+                </tr>
                 <tr><th>最終在庫確認</th><td>{{ product.last_stock_check or '-' }}</td></tr>
                 <tr><th>更新日時</th><td>{{ product.updated_at or '-' }}</td></tr>
             </tbody>
         </table>
-
-        <!-- 商品名（英語） -->
-        {% if product.name_en %}
-        <div class="mb-3">
-            <strong>英語名:</strong>
-            <div class="mt-1">{{ product.name_en }}</div>
-        </div>
-        {% endif %}
 
         <!-- スペック -->
         {% if product.spec_text %}
@@ -100,13 +103,113 @@
             <div class="mt-1 bg-light p-2 rounded" style="font-size: 0.85em;">{{ product.description_ja }}</div>
         </div>
         {% endif %}
+    </div>
+</div>
 
-        {% if product.description_en %}
-        <div class="mb-3">
-            <strong>説明（英語）:</strong>
-            <div class="mt-1 bg-light p-2 rounded" style="font-size: 0.85em;">{{ product.description_en }}</div>
+<!-- 出品用情報編集カード -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>出品用情報（英語）</span>
+        <div>
+            <button class="btn btn-sm btn-outline-warning" onclick="generateListing()" id="generateBtn">
+                <span id="generateSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                AI生成
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="saveListing()">保存</button>
         </div>
-        {% endif %}
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="titleEn" class="form-label">英語タイトル（max 80文字）</label>
+            <input type="text" id="titleEn" class="form-control" maxlength="80"
+                   value="{{ product.name_en or '' }}">
+            <small class="text-muted"><span id="titleCount">{{ (product.name_en or '')|length }}</span>/80</small>
+        </div>
+        <div class="mb-3">
+            <label for="descEn" class="form-label">英語説明</label>
+            <textarea id="descEn" class="form-control" rows="6">{{ product.description_en or '' }}</textarea>
+        </div>
+        <div class="mb-3">
+            <label for="seoTags" class="form-label">SEOタグ（カンマ区切り）</label>
+            <input type="text" id="seoTags" class="form-control" placeholder="japanese tenugui, hand towel, cotton">
+        </div>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label for="salePrice" class="form-label">販売価格 (USD)</label>
+                <input type="number" id="salePrice" class="form-control" step="0.01" min="0" value="18.00">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-outline-info" onclick="calcProfit()">利益計算</button>
+            </div>
+            <div class="col-md-4">
+                <div id="profitResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 出品用情報編集カード（日本語・BASE向け） -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>出品用情報（日本語・BASE向け）</span>
+        <div>
+            <button class="btn btn-sm btn-outline-warning" onclick="generateListingJa()" id="generateJaBtn">
+                <span id="generateJaSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                AI生成（日本語）
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="saveListingJa()">保存</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="titleJa" class="form-label">日本語タイトル（max 50文字）</label>
+            <input type="text" id="titleJa" class="form-control" maxlength="50"
+                   value="{{ product.name_ja or '' }}">
+            <small class="text-muted"><span id="titleJaCount">{{ (product.name_ja or '')|length }}</span>/50</small>
+        </div>
+        <div class="mb-3">
+            <label for="descJa" class="form-label">日本語説明</label>
+            <textarea id="descJa" class="form-control" rows="6">{{ product.description_ja or '' }}</textarea>
+        </div>
+    </div>
+</div>
+
+<!-- BANチェック結果 -->
+<div id="banCheckResult" class="mt-2"></div>
+
+<!-- プラットフォーム出品カード -->
+<div class="card mt-4">
+    <div class="card-header">プラットフォーム出品</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h6>eBay</h6>
+                        <p class="text-muted small">英語タイトル・説明・価格・タグを使用して出品</p>
+                        <button class="btn btn-primary" onclick="listOnEbay()" id="ebayListBtn">
+                            <span id="ebaySpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            eBayに出品
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h6>BASE</h6>
+                        <p class="text-muted small">日本語タイトル・説明を使用して出品</p>
+                        <div class="mb-2">
+                            <input type="number" id="basePriceJpy" class="form-control form-control-sm" placeholder="価格(円)" value="2000">
+                        </div>
+                        <button class="btn btn-info" onclick="listOnBase()" id="baseListBtn">
+                            <span id="baseSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            BASEに出品
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -180,4 +283,169 @@
     </div>
 </div>
 {% endif %}
+
+<script>
+var productId = {{ product.id }};
+
+// タイトル文字数カウント
+document.getElementById('titleEn').addEventListener('input', function() {
+    document.getElementById('titleCount').textContent = this.value.length;
+});
+document.getElementById('titleJa').addEventListener('input', function() {
+    document.getElementById('titleJaCount').textContent = this.value.length;
+});
+
+// AI生成
+function generateListing() {
+    var btn = document.getElementById('generateBtn');
+    var spinner = document.getElementById('generateSpinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    apiRequest('/api/products/' + productId + '/generate', {}, function(result) {
+        document.getElementById('titleEn').value = result.title || '';
+        document.getElementById('descEn').value = result.description || '';
+        document.getElementById('titleCount').textContent = (result.title || '').length;
+        if (result.tags && result.tags.length > 0) {
+            document.getElementById('seoTags').value = result.tags.join(', ');
+        }
+        showToast('AI生成完了', 'success');
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    }, function() {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+}
+
+// 保存（英語）
+function saveListing() {
+    var data = {
+        name_en: document.getElementById('titleEn').value,
+        description_en: document.getElementById('descEn').value
+    };
+    apiRequest('/api/products/' + productId + '/update', data, function(result) {
+        showToast(result.message, 'success');
+    });
+}
+
+// AI生成（日本語・BASE向け）
+function generateListingJa() {
+    var btn = document.getElementById('generateJaBtn');
+    var spinner = document.getElementById('generateJaSpinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    apiRequest('/api/products/' + productId + '/generate-ja', {}, function(result) {
+        document.getElementById('titleJa').value = result.title_ja || '';
+        document.getElementById('descJa').value = result.description_ja || '';
+        document.getElementById('titleJaCount').textContent = (result.title_ja || '').length;
+        showToast('日本語AI生成完了', 'success');
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    }, function() {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+}
+
+// 保存（日本語）
+function saveListingJa() {
+    var data = {
+        name_ja: document.getElementById('titleJa').value,
+        description_ja: document.getElementById('descJa').value
+    };
+    apiRequest('/api/products/' + productId + '/update', data, function(result) {
+        showToast(result.message, 'success');
+    });
+}
+
+// 利益計算
+function calcProfit() {
+    var price = parseFloat(document.getElementById('salePrice').value);
+    if (isNaN(price) || price <= 0) { showToast('有効な価格を入力してください', 'danger'); return; }
+    apiRequest('/api/products/' + productId + '/profit', {sale_usd: price, platform: 'ebay'}, function(result) {
+        var color = result.profitable ? 'text-success' : 'text-danger';
+        var html = '<div class="' + color + '">'
+            + '<strong>利益: $' + result.profit_usd.toFixed(2) + '</strong> '
+            + '(利益率: ' + (result.profit_margin * 100).toFixed(1) + '%)<br>'
+            + '<small>送料: $' + result.shipping_usd.toFixed(2) + ' / 手数料: $' + result.platform_fees_usd.toFixed(2) + '</small>'
+            + '</div>';
+        document.getElementById('profitResult').innerHTML = html;
+    });
+}
+
+// BANチェック
+function runBanCheck() {
+    apiRequest('/api/products/' + productId + '/ban-check', {}, function(result) {
+        var html = '';
+        if (result.passed) {
+            html = '<div class="alert alert-success py-1 small">BANチェック: OK</div>';
+        } else {
+            html = '<div class="alert alert-warning py-1 small">BANチェック警告:<ul class="mb-0">';
+            for (var i = 0; i < result.issues.length; i++) {
+                html += '<li>' + result.issues[i] + '</li>';
+            }
+            html += '</ul></div>';
+        }
+        document.getElementById('banCheckResult').innerHTML = html;
+    });
+}
+
+// eBay出品
+function listOnEbay() {
+    var title = document.getElementById('titleEn').value.trim();
+    var desc = document.getElementById('descEn').value.trim();
+    var price = parseFloat(document.getElementById('salePrice').value);
+    var tagsStr = document.getElementById('seoTags').value.trim();
+    var tags = tagsStr ? tagsStr.split(',').map(function(t) { return t.trim(); }) : [];
+
+    if (!title || !desc) { showToast('英語タイトルと説明を入力してください', 'danger'); return; }
+    if (isNaN(price) || price <= 0) { showToast('有効な販売価格を入力してください', 'danger'); return; }
+    if (!confirm('eBayに出品しますか？ ($' + price.toFixed(2) + ')')) return;
+
+    var btn = document.getElementById('ebayListBtn');
+    var spinner = document.getElementById('ebaySpinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+
+    apiRequest('/api/products/' + productId + '/list-ebay', {
+        title_en: title, description_en: desc, price_usd: price, tags: tags
+    }, function(result) {
+        showToast(result.message, 'success');
+        setTimeout(function() { location.reload(); }, 1500);
+    }, function() {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+}
+
+// BASE出品
+function listOnBase() {
+    var priceJpy = parseInt(document.getElementById('basePriceJpy').value);
+    if (isNaN(priceJpy) || priceJpy <= 0) { showToast('有効な価格(円)を入力してください', 'danger'); return; }
+    if (!confirm('BASEに出品しますか？ (' + priceJpy + '円)')) return;
+
+    var btn = document.getElementById('baseListBtn');
+    var spinner = document.getElementById('baseSpinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+
+    var titleJa = document.getElementById('titleJa').value.trim();
+    var descJa = document.getElementById('descJa').value.trim();
+
+    apiRequest('/api/products/' + productId + '/list-base', {
+        price_jpy: priceJpy,
+        title_ja: titleJa,
+        description_ja: descJa
+    }, function(result) {
+        showToast(result.message, 'success');
+        setTimeout(function() { location.reload(); }, 1500);
+    }, function() {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+}
+
+// ページ読み込み時にBANチェック実行
+document.addEventListener('DOMContentLoaded', runBanCheck);
+</script>
 {% endblock %}

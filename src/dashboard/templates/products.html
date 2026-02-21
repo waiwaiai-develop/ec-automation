@@ -7,8 +7,29 @@
     <span class="text-muted">{{ products|length }}件表示</span>
 </div>
 
+<!-- NETSEA URL登録フォーム -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form id="netseaImportForm" class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="col-form-label fw-bold">NETSEA商品登録:</label>
+            </div>
+            <div class="col">
+                <input type="url" id="netseaUrl" class="form-control form-control-sm"
+                       placeholder="https://www.netsea.jp/shop/79841/89526" required>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-success" id="importBtn">
+                    <span id="importSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                    登録
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- フィルター -->
-<form method="get" class="row g-2 mb-4">
+<form method="get" class="row g-2 mb-3">
     <div class="col-auto">
         <select name="category" class="form-select form-select-sm">
             <option value="">全カテゴリ</option>
@@ -38,11 +59,26 @@
     </div>
 </form>
 
+<!-- 一括操作バー -->
+<div id="bulkBar" class="card mb-2 d-none">
+    <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+        <span class="fw-bold"><span id="selectedCount">0</span>件選択</span>
+        <button class="btn btn-sm btn-outline-danger" onclick="bulkDelete()">一括削除</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="bulkSetFlag('list_on_ebay', 1)">eBay ON</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="bulkSetFlag('list_on_ebay', 0)">eBay OFF</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="bulkSetFlag('list_on_base', 1)">BASE ON</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="bulkSetFlag('list_on_base', 0)">BASE OFF</button>
+        <button class="btn btn-sm btn-success" onclick="bulkList('ebay')">eBay一括出品</button>
+        <button class="btn btn-sm btn-info" onclick="bulkList('base')">BASE一括出品</button>
+    </div>
+</div>
+
 <!-- 商品テーブル -->
 <div class="table-responsive">
     <table class="table table-hover table-sm">
         <thead class="table-light">
             <tr>
+                <th><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
                 <th>ID</th>
                 <th>画像</th>
                 <th>商品名</th>
@@ -51,6 +87,7 @@
                 <th class="text-end">上代(円)</th>
                 <th class="text-end">重量(g)</th>
                 <th>在庫</th>
+                <th>出品先</th>
                 <th>直送</th>
                 <th>画像</th>
                 <th>ネット販売</th>
@@ -61,6 +98,7 @@
         <tbody>
             {% for p in products %}
             <tr>
+                <td><input type="checkbox" class="product-checkbox" value="{{ p.id }}" onchange="updateBulkBar()"></td>
                 <td>{{ p.id }}</td>
                 <td>
                     {% set imgs = p.image_urls|parse_images %}
@@ -85,6 +123,12 @@
                         {{ p.stock_status or 'in_stock' }}
                     </span>
                 </td>
+                <td>
+                    {% if p.list_on_ebay %}<span class="badge bg-primary me-1" title="eBay">e</span>{% endif %}
+                    {% if p.list_on_base %}<span class="badge bg-info me-1" title="BASE">B</span>{% endif %}
+                    {% if p.list_on_shopify %}<span class="badge bg-success" title="Shopify">S</span>{% endif %}
+                    {% if not p.list_on_ebay and not p.list_on_base and not p.list_on_shopify %}-{% endif %}
+                </td>
                 <td><span class="badge bg-{{ 'success' if p.direct_send_flag == 'Y' else 'danger' }}">{{ p.direct_send_flag or '-' }}</span></td>
                 <td><span class="badge bg-{{ 'success' if p.image_copy_flag == 'Y' else 'danger' }}">{{ p.image_copy_flag or '-' }}</span></td>
                 <td><span class="badge bg-{{ 'success' if p.deal_net_shop_flag == 'Y' else 'danger' }}">{{ p.deal_net_shop_flag or '-' }}</span></td>
@@ -104,7 +148,99 @@
 
 {% if not products %}
 <div class="text-center text-muted py-5">
-    <p>商品がありません。<code>python -m src.cli.main netsea import</code> で取得してください。</p>
+    <p>商品がありません。上のフォームからNETSEA URLで商品を登録するか、<code>python -m src.cli.main netsea import</code> で取得してください。</p>
 </div>
 {% endif %}
+
+<script>
+// NETSEA URL登録
+document.getElementById('netseaImportForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var url = document.getElementById('netseaUrl').value.trim();
+    if (!url) return;
+    var btn = document.getElementById('importBtn');
+    var spinner = document.getElementById('importSpinner');
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    apiRequest('/api/products/import-netsea-url', {url: url}, function(result) {
+        showToast(result.message, 'success');
+        setTimeout(function() { location.reload(); }, 1000);
+    }, function() {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+});
+
+// 全選択/解除
+function toggleAll(el) {
+    var checkboxes = document.querySelectorAll('.product-checkbox');
+    for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].checked = el.checked;
+    }
+    updateBulkBar();
+}
+
+// 選択件数同期・バー表示
+function updateBulkBar() {
+    var checked = document.querySelectorAll('.product-checkbox:checked');
+    var bar = document.getElementById('bulkBar');
+    var count = document.getElementById('selectedCount');
+    count.textContent = checked.length;
+    if (checked.length > 0) {
+        bar.classList.remove('d-none');
+    } else {
+        bar.classList.add('d-none');
+    }
+}
+
+// 選択中のproduct_idsを取得
+function getSelectedIds() {
+    var checked = document.querySelectorAll('.product-checkbox:checked');
+    var ids = [];
+    for (var i = 0; i < checked.length; i++) {
+        ids.push(parseInt(checked[i].value));
+    }
+    return ids;
+}
+
+// 一括削除
+function bulkDelete() {
+    var ids = getSelectedIds();
+    if (ids.length === 0) return;
+    if (!confirm(ids.length + '件の商品を削除しますか？この操作は取り消せません。')) return;
+    apiRequest('/api/products/bulk-delete', {product_ids: ids}, function(result) {
+        showToast(result.message, 'success');
+        setTimeout(function() { location.reload(); }, 1000);
+    });
+}
+
+// 一括フラグ設定
+function bulkSetFlag(flagName, value) {
+    var ids = getSelectedIds();
+    if (ids.length === 0) return;
+    var flags = {};
+    flags[flagName] = value;
+    apiRequest('/api/products/bulk-set-flags', {product_ids: ids, flags: flags}, function(result) {
+        showToast(result.message, 'success');
+        setTimeout(function() { location.reload(); }, 1000);
+    });
+}
+
+// 一括出品
+function bulkList(platform) {
+    var ids = getSelectedIds();
+    if (ids.length === 0) return;
+    var priceStr = prompt(platform === 'ebay' ? '販売価格(USD)を入力:' : '販売価格(USD概算)を入力:', '18.00');
+    if (!priceStr) return;
+    var price = parseFloat(priceStr);
+    if (isNaN(price) || price <= 0) { showToast('無効な価格です', 'danger'); return; }
+    if (!confirm(ids.length + '件を' + platform.toUpperCase() + 'に出品しますか？')) return;
+    apiRequest('/api/products/bulk-list', {
+        product_ids: ids, platform: platform, price_usd: price, auto_generate: true
+    }, function(result) {
+        showToast(result.message, 'info');
+        setTimeout(function() { location.reload(); }, 2000);
+    });
+}
+</script>
 {% endblock %}

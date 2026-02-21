@@ -172,6 +172,63 @@ def generate_seo_tags(
     return _parse_json_response(response.content[0].text)
 
 
+def generate_description_ja(
+    product: Dict,
+    model: Optional[str] = None,
+) -> Dict:
+    """日本語商品説明を生成（BASEショップ向け）
+
+    Args:
+        product: 商品データ dict
+        model: 使用モデル（デフォルト: claude-sonnet-4-6）
+
+    Returns:
+        {"title_ja": str, "description_ja": str}
+    """
+    client = _get_client()
+    model = model or DEFAULT_MODEL
+
+    # 商品情報組み立て
+    product_info = "商品名: {name}\n".format(
+        name=product.get("name_ja", "不明")
+    )
+    if product.get("category"):
+        product_info += "カテゴリ: {}\n".format(product["category"])
+    if product.get("weight_g"):
+        product_info += "重量: {}g\n".format(product["weight_g"])
+    if product.get("wholesale_price_jpy"):
+        product_info += "卸値: {}円\n".format(product["wholesale_price_jpy"])
+    if product.get("description_ja"):
+        product_info += "説明: {}\n".format(product["description_ja"][:500])
+
+    system_prompt = (
+        "あなたは日本のECサイト（BASE）で販売する商品の魅力的な説明文を書く専門家です。"
+        "日本国内の購入者向けに、商品の魅力が伝わる説明文を作成してください。"
+    )
+
+    user_prompt = """{product_info}
+ルール:
+- タイトル: 50文字以内、検索されやすいキーワードを含める
+- 説明文: 商品の特徴・素材・使い方を丁寧に説明（200〜400文字）
+- ブランド名は絶対に含めない
+- ドロップシッピングや卸売に関する記述は含めない
+- 「日本製」「職人」などの魅力的なキーワードを自然に含める
+
+出力JSON:
+{{"title_ja": "", "description_ja": ""}}""".format(
+        product_info=product_info
+    )
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=1024,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    return _parse_json_response(response.content[0].text)
+
+
 def generate_full_listing(
     product: Dict,
     model: Optional[str] = None,

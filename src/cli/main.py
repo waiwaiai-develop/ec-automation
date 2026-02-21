@@ -12,6 +12,7 @@
     python -m src.cli.main product describe --id 1
     python -m src.cli.main platform list-ebay --id 1 --price 18.00
     python -m src.cli.main platform list-etsy --id 1 --price 18.00
+    python -m src.cli.main platform list-base --id 1 --price-jpy 2000 [--stock 10]
     python -m src.cli.main platform listings [--platform ebay]
     python -m src.cli.main sync inventory
     python -m src.cli.main sync orders
@@ -426,10 +427,20 @@ def product_list(category, limit):
     table.add_column("卸値(円)", justify="right", style="green")
     table.add_column("重量(g)", justify="right")
     table.add_column("在庫", style="yellow")
+    table.add_column("出品先", style="magenta")
 
     for p in products:
         name = p["name_ja"]
         name_display = (name[:37] + "...") if len(name) > 40 else name
+        # 出品先フラグ表示（e=eBay, B=BASE, S=Shopify）
+        pf_parts = []
+        if p.get("list_on_ebay"):
+            pf_parts.append("e")
+        if p.get("list_on_base"):
+            pf_parts.append("B")
+        if p.get("list_on_shopify"):
+            pf_parts.append("S")
+        pf_display = "".join(pf_parts) if pf_parts else "-"
         table.add_row(
             str(p["id"]),
             name_display,
@@ -437,6 +448,7 @@ def product_list(category, limit):
             str(p["wholesale_price_jpy"]) if p.get("wholesale_price_jpy") else "-",
             str(p["weight_g"]) if p.get("weight_g") else "-",
             p.get("stock_status", "-"),
+            pf_display,
         )
 
     console.print(table)
@@ -499,7 +511,7 @@ def product_check(product_id, check_all):
 @click.option("--id", "product_id", type=int, required=True, help="商品ID")
 @click.option("--price", "sale_price", type=float, required=True, help="販売価格（USD）")
 @click.option("--platform", "platform_name", default="ebay",
-              type=click.Choice(["ebay", "etsy"]), help="プラットフォーム（デフォルト: ebay）")
+              type=click.Choice(["ebay", "etsy", "base"]), help="プラットフォーム（デフォルト: ebay）")
 def product_profit(product_id, sale_price, platform_name):
     """利益計算"""
     from src.ai.profit_calculator import calculate_profit, suggest_price
@@ -563,6 +575,110 @@ def product_profit(product_id, sale_price, platform_name):
                     suggestion["suggested_price_usd"]
                 )
             )
+
+
+@product.command("set-platforms")
+@click.option("--id", "product_id", type=int, default=None, help="商品ID（--all-productsと排他）")
+@click.option("--all-products", is_flag=True, help="全商品に適用")
+@click.option("--ebay/--no-ebay", default=None, help="eBay出品フラグ")
+@click.option("--base/--no-base", default=None, help="BASE出品フラグ")
+@click.option("--shopify/--no-shopify", default=None, help="Shopify出品フラグ")
+@click.option("--all", "all_platforms", is_flag=True, help="全プラットフォームON")
+def product_set_platforms(product_id, all_products, ebay, base, shopify, all_platforms):
+    """商品の出品先プラットフォームフラグを設定"""
+    if not product_id and not all_products:
+        console.print("[red]--id または --all-products を指定してください。[/red]")
+        return
+
+    if product_id and all_products:
+        console.print("[red]--id と --all-products は同時に指定できません。[/red]")
+        return
+
+    # --all が指定された場合は全プラットフォームON
+    if all_platforms:
+        ebay = True
+        base = True
+        shopify = True
+
+    # 何も指定されていない場合
+    if ebay is None and base is None and shopify is None:
+        console.print("[red]--ebay/--base/--shopify/--all のいずれかを指定してください。[/red]")
+        return
+
+    database = Database()
+
+    # UPDATE文を動的に組み立て（指定されたフラグのみ更新）
+    set_clauses = []
+    params = []
+    if ebay is not None:
+        set_clauses.append("list_on_ebay = ?")
+        params.append(1 if ebay else 0)
+    if base is not None:
+        set_clauses.append("list_on_base = ?")
+        params.append(1 if base else 0)
+    if shopify is not None:
+        set_clauses.append("list_on_shopify = ?")
+        params.append(1 if shopify else 0)
+
+    with database.connect() as conn:
+        if product_id:
+            # 商品存在確認
+            row = conn.execute("SELECT id, name_ja FROM products WHERE id = ?", (product_id,)).fetchone()
+            if not row:
+                console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
+                return
+
+            query = "UPDATE products SET {} WHERE id = ?".format(", ".join(set_clauses))
+            conn.execute(query, params + [product_id])
+            console.print("[green]商品ID {} のフラグを更新しました。[/green]".format(product_id))
+
+            # 更新後のフラグ表示
+            updated = conn.execute(
+                "SELECT list_on_ebay, list_on_base, list_on_shopify FROM products WHERE id = ?",
+                (product_id,),
+            ).fetchone()
+            _print_platform_flags(dict(updated))
+        else:
+            query = "UPDATE products SET {}".format(", ".join(set_clauses))
+            cursor = conn.execute(query, params)
+            console.print("[green]全商品 ({}件) のフラグを更新しました。[/green]".format(cursor.rowcount))
+
+            # 更新後のフラグ表示
+            flags = {"list_on_ebay": ebay, "list_on_base": base, "list_on_shopify": shopify}
+            _print_platform_flags_from_args(flags)
+
+
+def _print_platform_flags(row):
+    """出品フラグの状態を表示"""
+    parts = []
+    if row.get("list_on_ebay"):
+        parts.append("[green]eBay: ON[/green]")
+    else:
+        parts.append("[dim]eBay: OFF[/dim]")
+    if row.get("list_on_base"):
+        parts.append("[green]BASE: ON[/green]")
+    else:
+        parts.append("[dim]BASE: OFF[/dim]")
+    if row.get("list_on_shopify"):
+        parts.append("[green]Shopify: ON[/green]")
+    else:
+        parts.append("[dim]Shopify: OFF[/dim]")
+    console.print("  " + " / ".join(parts))
+
+
+def _print_platform_flags_from_args(flags):
+    """引数から出品フラグの状態を表示"""
+    parts = []
+    for name, val in [("eBay", flags.get("list_on_ebay")),
+                      ("BASE", flags.get("list_on_base")),
+                      ("Shopify", flags.get("list_on_shopify"))]:
+        if val is True:
+            parts.append("[green]{}: ON[/green]".format(name))
+        elif val is False:
+            parts.append("[dim]{}: OFF[/dim]".format(name))
+        else:
+            parts.append("[yellow]{}: 変更なし[/yellow]".format(name))
+    console.print("  " + " / ".join(parts))
 
 
 @product.command("describe")
@@ -639,7 +755,8 @@ def platform():
 @click.option("--price", "price_usd", type=float, required=True, help="販売価格（USD）")
 @click.option("--category-id", default=None, help="eBayカテゴリID")
 @click.option("--sandbox/--production", default=True, help="sandbox/本番切替")
-def platform_list_ebay(product_id, price_usd, category_id, sandbox):
+@click.option("--force", is_flag=True, help="フラグ未設定でも強制出品")
+def platform_list_ebay(product_id, price_usd, category_id, sandbox, force):
     """eBayに出品"""
     from src.ai.ban_filter import check_ban_risk
     from src.ai.description_generator import generate_full_listing
@@ -650,6 +767,14 @@ def platform_list_ebay(product_id, price_usd, category_id, sandbox):
     if not p:
         console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
         return
+
+    # 出品フラグチェック
+    if not p.get("list_on_ebay") and not force:
+        console.print("[yellow]この商品のeBay出品フラグがOFFです。[/yellow]")
+        console.print("[dim]`product set-platforms --id {} --ebay` でフラグを設定するか、--force で強制出品できます。[/dim]".format(product_id))
+        if not click.confirm("続行しますか？"):
+            console.print("[dim]中止しました。[/dim]")
+            return
 
     # BANチェック
     ban_result = check_ban_risk(p, database)
@@ -713,7 +838,8 @@ def platform_list_ebay(product_id, price_usd, category_id, sandbox):
 @click.option("--id", "product_id", type=int, required=True, help="商品ID")
 @click.option("--price", "price_usd", type=float, required=True, help="販売価格（USD）")
 @click.option("--taxonomy-id", type=int, default=None, help="EtsyタクソノミーID")
-def platform_list_etsy(product_id, price_usd, taxonomy_id):
+@click.option("--force", is_flag=True, help="フラグ未設定でも強制出品")
+def platform_list_etsy(product_id, price_usd, taxonomy_id, force):
     """Etsyに出品"""
     from src.ai.ban_filter import check_ban_risk
     from src.ai.description_generator import generate_full_listing
@@ -724,6 +850,11 @@ def platform_list_etsy(product_id, price_usd, taxonomy_id):
     if not p:
         console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
         return
+
+    # 出品フラグチェック（EtsyにはShopifyフラグを参考表示）
+    # 注: Etsy専用フラグは現状なし。将来追加する場合はここを修正
+    if not force:
+        console.print("[dim]注: Etsy専用の出品フラグはまだ未実装です。[/dim]")
 
     # BANチェック
     ban_result = check_ban_risk(p, database)
@@ -779,6 +910,90 @@ def platform_list_etsy(product_id, price_usd, taxonomy_id):
     console.print("[green]出品完了[/green]")
     console.print("  Listing ID: {}".format(result["platform_listing_id"]))
     console.print("  URL: {}".format(result.get("url", "")))
+
+
+@platform.command("list-base")
+@click.option("--id", "product_id", type=int, required=True, help="商品ID")
+@click.option("--price-jpy", type=int, required=True, help="販売価格（円）")
+@click.option("--stock", default=5, type=int, help="在庫数（デフォルト: 5）")
+@click.option("--force", is_flag=True, help="フラグ未設定でも強制出品")
+def platform_list_base(product_id, price_jpy, stock, force):
+    """BASEに出品"""
+    from src.ai.ban_filter import check_ban_risk
+    from src.ai.description_generator import generate_description_ja
+    from src.platforms.base_shop import BaseShopClient
+
+    database = Database()
+    p = database.get_product(product_id)
+    if not p:
+        console.print("[red]商品ID {} が見つかりません。[/red]".format(product_id))
+        return
+
+    # 出品フラグチェック
+    if not p.get("list_on_base") and not force:
+        console.print("[yellow]この商品のBASE出品フラグがOFFです。[/yellow]")
+        console.print("[dim]`product set-platforms --id {} --base` でフラグを設定するか、--force で強制出品できます。[/dim]".format(product_id))
+        if not click.confirm("続行しますか？"):
+            console.print("[dim]中止しました。[/dim]")
+            return
+
+    # BANチェック
+    ban_result = check_ban_risk(p, database)
+    if not ban_result["safe"]:
+        console.print("[red]BANリスクあり。出品中止。[/red]")
+        for issue in ban_result["issues"]:
+            console.print("  [yellow]- {}[/yellow]".format(issue["detail"]))
+        return
+
+    console.print("[bold]商品:[/bold] {}".format(p["name_ja"][:50]))
+
+    # AI日本語説明生成
+    console.print("[dim]AI日本語説明生成中...[/dim]")
+    try:
+        desc_result = generate_description_ja(p)
+    except Exception as e:
+        console.print("[red]AI生成エラー: {}[/red]".format(e))
+        return
+
+    listing_data = {
+        "title_ja": desc_result.get("title_ja", ""),
+        "description_ja": desc_result.get("description_ja", ""),
+        "price_jpy": price_jpy,
+        "stock": stock,
+    }
+
+    # BASE出品
+    console.print("[dim]BASE出品中...[/dim]")
+    try:
+        client = BaseShopClient()
+        result = client.create_listing(p, listing_data)
+    except Exception as e:
+        console.print("[red]出品エラー: {}[/red]".format(e))
+        return
+
+    # DB記録（price_usd は JPY/150で概算変換）
+    from src.ai.profit_calculator import USD_JPY_RATE, estimate_shipping
+    price_usd = round(price_jpy / USD_JPY_RATE, 2)
+    shipping = estimate_shipping(p.get("weight_g"))
+    database.create_listing({
+        "product_id": product_id,
+        "platform": "base",
+        "platform_listing_id": result["platform_listing_id"],
+        "title_en": listing_data["title_ja"],
+        "description_en": listing_data["description_ja"],
+        "tags": [],
+        "price_usd": price_usd,
+        "shipping_cost_usd": shipping["cost_usd"],
+        "status": result["status"],
+        "ban_check_passed": True,
+    })
+
+    console.print("[green]BASE出品完了[/green]")
+    console.print("  Listing ID: {}".format(result["platform_listing_id"]))
+    console.print("  価格: {}円 (${:.2f})".format(price_jpy, price_usd))
+    console.print("  在庫: {}".format(stock))
+    if result.get("url"):
+        console.print("  URL: {}".format(result["url"]))
 
 
 @platform.command("listings")

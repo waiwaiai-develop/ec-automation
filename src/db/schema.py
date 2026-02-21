@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS products (
     image_copy_flag       TEXT,                   -- 画像転載可（Y/N）
     deal_net_shop_flag    TEXT,                   -- ネット販売可（Y/N）
     deal_net_auction_flag TEXT,                   -- ネットオークション可（Y/N）
+    list_on_ebay        INTEGER DEFAULT 0,       -- eBay出品フラグ（0=OFF, 1=ON）
+    list_on_base        INTEGER DEFAULT 0,       -- BASE出品フラグ（0=OFF, 1=ON）
+    list_on_shopify     INTEGER DEFAULT 0,       -- Shopify出品フラグ（0=OFF, 1=ON）
     last_stock_check    DATETIME,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP

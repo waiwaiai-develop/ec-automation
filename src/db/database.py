@@ -68,6 +68,9 @@ class Database:
                 ("image_copy_flag", "TEXT"),
                 ("deal_net_shop_flag", "TEXT"),
                 ("deal_net_auction_flag", "TEXT"),
+                ("list_on_ebay", "INTEGER DEFAULT 0"),
+                ("list_on_base", "INTEGER DEFAULT 0"),
+                ("list_on_shopify", "INTEGER DEFAULT 0"),
             ]
             for col_name, col_type in migrate_columns:
                 try:
@@ -579,6 +582,99 @@ class Database:
                 (status, items_checked, items_changed,
                  errors_json, datetime.now().isoformat(), sync_id),
             )
+
+    def update_product(self, product_id: int, updates: Dict[str, Any]) -> bool:
+        """商品の部分更新（ホワイトリストで更新可能カラムを制限）"""
+        if not updates:
+            return False
+
+        allowed = {
+            "name_ja", "name_en", "description_ja", "description_en",
+            "category", "weight_g", "stock_status",
+            "list_on_ebay", "list_on_base", "list_on_shopify",
+        }
+
+        set_clauses = []
+        params = []  # type: List[Any]
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            set_clauses.append("{} = ?".format(key))
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(product_id)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE products SET {} WHERE id = ?".format(
+                    ", ".join(set_clauses)
+                ),
+                params,
+            )
+            return cursor.rowcount > 0
+
+    def delete_products(self, product_ids: List[int]) -> int:
+        """商品を一括削除（関連listings先に削除）。削除件数を返す"""
+        if not product_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in product_ids)
+
+        with self.connect() as conn:
+            # 関連リスティングを先に削除
+            conn.execute(
+                "DELETE FROM listings WHERE product_id IN ({})".format(
+                    placeholders
+                ),
+                product_ids,
+            )
+            # 商品削除
+            cursor = conn.execute(
+                "DELETE FROM products WHERE id IN ({})".format(
+                    placeholders
+                ),
+                product_ids,
+            )
+            return cursor.rowcount
+
+    def update_product_flags(
+        self, product_ids: List[int], flags: Dict[str, int]
+    ) -> int:
+        """複数商品の出品フラグを一括更新。更新件数を返す"""
+        if not product_ids or not flags:
+            return 0
+
+        allowed_flags = {"list_on_ebay", "list_on_base", "list_on_shopify"}
+        set_clauses = []
+        params = []  # type: List[Any]
+        for key, value in flags.items():
+            if key not in allowed_flags:
+                continue
+            set_clauses.append("{} = ?".format(key))
+            params.append(value)
+
+        if not set_clauses:
+            return 0
+
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+
+        placeholders = ",".join("?" for _ in product_ids)
+        params.extend(product_ids)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE products SET {} WHERE id IN ({})".format(
+                    ", ".join(set_clauses), placeholders
+                ),
+                params,
+            )
+            return cursor.rowcount
 
     def get_daily_summary(self, date: Optional[str] = None) -> Dict[str, Any]:
         """日次サマリーを取得"""

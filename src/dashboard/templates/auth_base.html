@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}BASE認証{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">BASE OAuth認証</h2>
+
+{% if success %}
+<div class="alert alert-success">
+    <h5>認証成功！</h5>
+    <p>BASE APIのトークンを取得しました。</p>
+    <p>スコープ: <code>{{ scope }}</code></p>
+    <p>これでBASE出品が可能です。</p>
+    <a href="/products" class="btn btn-primary">商品一覧に戻る</a>
+</div>
+
+{% elif error %}
+<div class="alert alert-danger">
+    <h5>エラー</h5>
+    <p>{{ error }}</p>
+    <a href="/auth/base" class="btn btn-outline-primary mt-2">再試行</a>
+</div>
+
+{% elif auth_url %}
+<div class="card">
+    <div class="card-body">
+        <h5>BASE APIの認証が必要です</h5>
+        <p>商品登録（<code>write_items</code>）を含む全スコープで認証します。</p>
+        <p class="text-muted small">コールバックURL: <code>{{ callback_url }}</code></p>
+        <div class="alert alert-warning">
+            <strong>重要:</strong> BASEデベロッパー設定のリダイレクトURIに<br>
+            <code>{{ callback_url }}</code><br>
+            が登録されていることを確認してください。
+        </div>
+        <a href="{{ auth_url }}" class="btn btn-primary btn-lg">BASEで認証する</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
