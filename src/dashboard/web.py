@@ -1174,22 +1174,63 @@ def create_app(db_path=None):
 
     @app.route("/api/sns/posts/<int:post_id>/publish", methods=["POST"])
     def api_sns_post_publish(post_id):
-        """SNS投稿を実行（スタブ: ステータスをpostedに変更）"""
+        """SNS投稿を実行（各プラットフォームAPIに投稿）"""
         post = db.get_sns_post(post_id)
         if not post:
             return jsonify({"error": "投稿ID {} が見つかりません".format(post_id)}), 404
 
-        from datetime import datetime as dt
-        db.update_sns_post(post_id, {
-            "status": "posted",
-            "posted_at": dt.now().isoformat(),
-            "platform_post_id": "stub_{}".format(post_id),
-        })
+        if post["status"] == "posted":
+            return jsonify({"error": "この投稿は既に投稿済みです"}), 400
 
-        return jsonify({
-            "success": True,
-            "message": "投稿しました（スタブ）",
-        })
+        platform = post["platform"]
+        body = post["body"]
+        hashtags = post.get("hashtags") or ""
+        if hashtags:
+            body = "{}\n\n{}".format(body, hashtags)
+
+        # 画像URLをパース
+        image_list = parse_image_urls(post.get("image_urls"))
+
+        from datetime import datetime as dt
+
+        try:
+            from src.sns.poster import publish_post
+            result = publish_post(platform, body, image_urls=image_list or None)
+
+            db.update_sns_post(post_id, {
+                "status": "posted",
+                "posted_at": dt.now().isoformat(),
+                "platform_post_id": result.get("platform_post_id", ""),
+            })
+
+            return jsonify({
+                "success": True,
+                "message": "{}に投稿しました".format(platform),
+                "url": result.get("url", ""),
+                "platform_post_id": result.get("platform_post_id", ""),
+            })
+
+        except ValueError as e:
+            # APIキー未設定 — フォールバックでスタブ投稿
+            db.update_sns_post(post_id, {
+                "status": "posted",
+                "posted_at": dt.now().isoformat(),
+                "platform_post_id": "local_{}".format(post_id),
+                "error_message": "APIキー未設定のためローカル投稿: {}".format(str(e)),
+            })
+            return jsonify({
+                "success": True,
+                "message": "投稿しました（APIキー未設定のためローカル保存）",
+            })
+
+        except Exception as e:
+            db.update_sns_post(post_id, {
+                "status": "failed",
+                "error_message": str(e),
+            })
+            return jsonify({
+                "error": "SNS投稿エラー: {}".format(str(e)),
+            }), 500
 
     @app.route("/api/sns/posts/<int:post_id>/delete", methods=["POST"])
     def api_sns_post_delete(post_id):

@@ -9,6 +9,8 @@ import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { ListingsPage } from '@/pages/ListingsPage'
 import { OrdersPage } from '@/pages/OrdersPage'
 import { SnsPage } from '@/pages/SnsPage'
+import { ResearchPage } from '@/pages/ResearchPage'
+import { ResearchDetailPage } from '@/pages/ResearchDetailPage'
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
               <Route path="products/:id" element={<ProductDetailPage />} />
               <Route path="listings" element={<ListingsPage />} />
               <Route path="orders" element={<OrdersPage />} />
+              <Route path="research" element={<ResearchPage />} />
+              <Route path="research/:id" element={<ResearchDetailPage />} />
               <Route path="sns" element={<SnsPage />} />
             </Route>
           </Routes>

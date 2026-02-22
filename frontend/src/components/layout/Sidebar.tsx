@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Package, ShoppingCart, List, Share2, X } from 'lucide-react'
+import { Home, Package, ShoppingCart, List, Share2, X, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/products', icon: Package, label: '商品管理' },
   { to: '/listings', icon: List, label: '出品管理' },
   { to: '/orders', icon: ShoppingCart, label: '注文管理' },
+  { to: '/research', icon: Search, label: '需要分析' },
   { to: '/sns', icon: Share2, label: 'SNS投稿' },
 ]
 

@@ -216,3 +216,82 @@ export interface ScoringCandidate {
 export interface ScoringResponse {
   candidates: ScoringCandidate[]
 }
+
+// --- リサーチ ---
+export interface ResearchSession {
+  id: number
+  keyword: string
+  marketplace_id: string | null
+  total_results: number | null
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
+  median_price_usd: number | null
+  avg_shipping_usd: number | null
+  sample_size: number | null
+  japan_seller_count: number | null
+  top_items_json: string | null
+  price_dist_json: string | null
+  status: string
+  error_msg: string | null
+  searched_at: string
+}
+
+export interface ResearchTopItem {
+  title: string
+  price: number
+  shipping?: number
+  seller?: string
+  url?: string
+  image_url?: string
+}
+
+export interface PriceDistBucket {
+  range: string
+  count: number
+  min: number
+  max: number
+}
+
+export interface ResearchMatch {
+  id: number
+  session_id: number
+  netsea_product_id: string | null
+  netsea_name_ja: string | null
+  wholesale_price_jpy: number | null
+  suggested_price_usd: number | null
+  profit_usd: number | null
+  profit_margin: number | null
+  profitable: boolean | null
+  demand_score: number | null
+  margin_score: number | null
+  competition_score: number | null
+  total_score: number | null
+  direct_send_flag: string | null
+  image_copy_flag: string | null
+  deal_net_shop_flag: string | null
+}
+
+export interface ResearchHistoryResponse {
+  sessions: ResearchSession[]
+  total: number
+}
+
+export interface ResearchDetailResponse {
+  session: ResearchSession
+  top_items: ResearchTopItem[]
+  price_dist: PriceDistBucket[]
+  matches: ResearchMatch[]
+}
+
+export interface ResearchAnalyzeResponse {
+  success: boolean
+  session: ResearchSession
+  message: string
+}
+
+export interface ResearchMatchResponse {
+  success: boolean
+  matches: ResearchMatch[]
+  message: string
+}

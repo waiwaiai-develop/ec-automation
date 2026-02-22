@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Package, List, ShoppingCart, DollarSign, BarChart3, TrendingUp, Activity, Star } from 'lucide-react'
+import { Package, List, ShoppingCart, DollarSign, BarChart3, TrendingUp, Activity, Star, CalendarClock } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, ResponsiveContainer } from 'recharts'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,8 +17,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { SnsPlatformBadge, SnsStatusBadge } from '@/components/shared/Badges'
 import { useApi } from '@/hooks/use-api'
-import { getDashboard, getDashboardHistory, getPlatformStats, getProductsScoring } from '@/lib/api'
+import { getDashboard, getDashboardHistory, getPlatformStats, getProductsScoring, getSnsPosts } from '@/lib/api'
 import { formatPrice } from '@/lib/formatters'
 
 const categoryLabels: Record<string, string> = {
@@ -37,6 +38,8 @@ export function DashboardPage() {
   const history = useApi(() => getDashboardHistory(historyDays), [historyDays])
   const platformStats = useApi(() => getPlatformStats(), [])
   const scoring = useApi(() => getProductsScoring(), [])
+  const upcoming = useApi(() => getSnsPosts({ status: 'scheduled', limit: 10 }), [])
+  const drafts = useApi(() => getSnsPosts({ status: 'draft', limit: 5 }), [])
 
   if (loading) {
     return (
@@ -307,6 +310,111 @@ export function DashboardPage() {
               <Star className="h-8 w-8 mb-2 opacity-30" />
               <p className="text-sm">未出品の商品がありません</p>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* SNS投稿予定 */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4 text-muted-foreground" />
+              SNS投稿予定
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => navigate('/sns')}
+            >
+              すべて見る
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {upcoming.loading ? (
+            <Skeleton className="h-[120px] rounded-lg" />
+          ) : (
+            <>
+              {/* 予約済み投稿 */}
+              {upcoming.data && upcoming.data.posts.length > 0 ? (
+                <div className="space-y-2">
+                  {upcoming.data.posts.map((post) => {
+                    const at = post.scheduled_at || post.created_at
+                    const d = new Date(at)
+                    const now = new Date()
+                    const diffMs = d.getTime() - now.getTime()
+                    const diffH = Math.floor(diffMs / (1000 * 60 * 60))
+                    const diffD = Math.floor(diffH / 24)
+                    let relativeTime = ''
+                    if (diffMs < 0) {
+                      relativeTime = '期限超過'
+                    } else if (diffD > 0) {
+                      relativeTime = `${diffD}日後`
+                    } else if (diffH > 0) {
+                      relativeTime = `${diffH}時間後`
+                    } else {
+                      const diffM = Math.max(0, Math.floor(diffMs / (1000 * 60)))
+                      relativeTime = `${diffM}分後`
+                    }
+
+                    return (
+                      <div
+                        key={post.id}
+                        className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/30 transition-colors cursor-pointer"
+                        onClick={() => navigate('/sns')}
+                      >
+                        <SnsPlatformBadge platform={post.platform} />
+                        <p className="flex-1 text-sm truncate min-w-0">{post.body}</p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {d.toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              diffMs < 0
+                                ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                                : diffH < 1
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                            }
+                          >
+                            {relativeTime}
+                          </Badge>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-6 text-muted-foreground">
+                  <CalendarClock className="h-6 w-6 mb-2 opacity-30" />
+                  <p className="text-sm">予約済みの投稿はありません</p>
+                </div>
+              )}
+
+              {/* 下書き投稿（予約済みの下に表示） */}
+              {drafts.data && drafts.data.posts.length > 0 && (
+                <div className="mt-4 pt-3 border-t">
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">下書き</p>
+                  <div className="space-y-1.5">
+                    {drafts.data.posts.map((post) => (
+                      <div
+                        key={post.id}
+                        className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-muted/30 transition-colors cursor-pointer"
+                        onClick={() => navigate('/sns')}
+                      >
+                        <SnsPlatformBadge platform={post.platform} />
+                        <p className="flex-1 text-sm truncate min-w-0 text-muted-foreground">{post.body}</p>
+                        <SnsStatusBadge status={post.status} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

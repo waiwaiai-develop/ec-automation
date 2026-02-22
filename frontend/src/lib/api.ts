@@ -11,6 +11,10 @@ import type {
   HistoryResponse,
   PlatformStatsResponse,
   ScoringResponse,
+  ResearchHistoryResponse,
+  ResearchDetailResponse,
+  ResearchAnalyzeResponse,
+  ResearchMatchResponse,
 } from '@/types'
 
 const BASE = '/api'
@@ -263,6 +267,31 @@ export function deleteSnsPost(id: number) {
   return postJson<{ success: boolean; message: string }>(
     `${BASE}/sns/posts/${id}/delete`,
     {}
+  )
+}
+
+// --- Research API ---
+
+export function getResearchHistory(params?: { keyword?: string; limit?: number }) {
+  const sp = new URLSearchParams()
+  if (params?.keyword) sp.set('keyword', params.keyword)
+  if (params?.limit) sp.set('limit', String(params.limit))
+  const qs = sp.toString()
+  return fetchJson<ResearchHistoryResponse>(`${BASE}/research/history${qs ? '?' + qs : ''}`)
+}
+
+export function getResearchDetail(id: number) {
+  return fetchJson<ResearchDetailResponse>(`${BASE}/research/${id}`)
+}
+
+export function analyzeKeyword(keyword: string, limit: number = 50) {
+  return postJson<ResearchAnalyzeResponse>(`${BASE}/research/analyze`, { keyword, limit })
+}
+
+export function matchNetsea(sessionId: number, supplierIds: string) {
+  return postJson<ResearchMatchResponse>(
+    `${BASE}/research/${sessionId}/match-netsea`,
+    { supplier_ids: supplierIds }
   )
 }
 
