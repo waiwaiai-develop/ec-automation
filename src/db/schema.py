@@ -125,6 +125,51 @@ CREATE TABLE IF NOT EXISTS ebay_market_data (
 );
 """
 
+# キーワードリサーチセッション
+RESEARCH_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_sessions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword             TEXT NOT NULL,
+    marketplace_id      TEXT DEFAULT 'EBAY_US',
+    total_results       INTEGER,
+    avg_price_usd       REAL,
+    min_price_usd       REAL,
+    max_price_usd       REAL,
+    median_price_usd    REAL,
+    avg_shipping_usd    REAL,
+    sample_size         INTEGER,
+    japan_seller_count  INTEGER DEFAULT 0,
+    top_items_json      TEXT,                     -- JSON配列
+    price_dist_json     TEXT,                     -- JSON配列（ヒストグラムバケツ）
+    status              TEXT DEFAULT 'completed', -- 'running','completed','failed'
+    error_msg           TEXT,
+    searched_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# NETSEAマッチング結果
+RESEARCH_MATCHES_TABLE = """
+CREATE TABLE IF NOT EXISTS research_matches (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          INTEGER NOT NULL REFERENCES research_sessions(id),
+    netsea_product_id   TEXT,
+    netsea_name_ja      TEXT,
+    wholesale_price_jpy INTEGER,
+    suggested_price_usd REAL,
+    profit_usd          REAL,
+    profit_margin       REAL,
+    profitable          BOOLEAN DEFAULT FALSE,
+    demand_score        REAL,
+    margin_score        REAL,
+    competition_score   REAL,
+    total_score         REAL,
+    direct_send_flag    TEXT,
+    image_copy_flag     TEXT,
+    deal_net_shop_flag  TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 # 同期ログ（在庫同期・注文処理の実行記録）
 SYNC_LOG_TABLE = """
 CREATE TABLE IF NOT EXISTS sync_log (
@@ -148,6 +193,8 @@ ALL_TABLES = [
     ("brand_blacklist", BRAND_BLACKLIST_TABLE),
     ("country_restrictions", COUNTRY_RESTRICTIONS_TABLE),
     ("ebay_market_data", EBAY_MARKET_DATA_TABLE),
+    ("research_sessions", RESEARCH_SESSIONS_TABLE),
+    ("research_matches", RESEARCH_MATCHES_TABLE),
     ("sync_log", SYNC_LOG_TABLE),
 ]
 

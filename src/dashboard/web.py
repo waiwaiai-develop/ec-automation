@@ -220,6 +220,48 @@ def create_app(db_path=None):
             current_status=status or "",
         )
 
+    # --- リサーチページルート ---
+
+    @app.route("/research")
+    def research():
+        """リサーチダッシュボード"""
+        return render_template("research.html")
+
+    @app.route("/research/<int:session_id>")
+    def research_detail(session_id):
+        """リサーチ詳細"""
+        session = db.get_research_session(session_id)
+        if not session:
+            return render_template(
+                "404.html",
+                message="リサーチID {} が見つかりません".format(session_id),
+            ), 404
+
+        # JSONカラムをパース
+        top_items = []
+        if session.get("top_items_json"):
+            try:
+                top_items = json.loads(session["top_items_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        price_dist = []
+        if session.get("price_dist_json"):
+            try:
+                price_dist = json.loads(session["price_dist_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        matches = db.get_research_matches(session_id)
+
+        return render_template(
+            "research_detail.html",
+            session=session,
+            top_items=top_items,
+            price_dist=price_dist,
+            matches=matches,
+        )
+
     # --- BASE OAuth認証 ---
 
     @app.route("/auth/base")
@@ -837,6 +879,169 @@ def create_app(db_path=None):
             "results": results,
             "message": "{}/{}件の出品に成功しました".format(success_count, len(product_ids)),
         })
+
+    # --- リサーチ APIエンドポイント ---
+
+    @app.route("/api/research/analyze", methods=["POST"])
+    def api_research_analyze():
+        """eBayキーワードリサーチ実行→DB保存→結果返却"""
+        data = request.get_json(force=True)
+        keyword = (data.get("keyword") or "").strip()
+        limit = data.get("limit", 50)
+
+        if not keyword:
+            return jsonify({"error": "キーワードが空です"}), 400
+
+        try:
+            limit = int(limit)
+            limit = max(1, min(limit, 200))
+        except (ValueError, TypeError):
+            limit = 50
+
+        try:
+            from src.research.research_service import run_keyword_research
+
+            result = run_keyword_research(keyword, limit=limit)
+
+            # DB保存
+            session_data = {
+                "keyword": keyword,
+                "marketplace_id": "EBAY_US",
+                "total_results": result.get("total_results"),
+                "avg_price_usd": result.get("avg_price_usd"),
+                "min_price_usd": result.get("min_price_usd"),
+                "max_price_usd": result.get("max_price_usd"),
+                "median_price_usd": result.get("median_price_usd"),
+                "avg_shipping_usd": result.get("avg_shipping_usd"),
+                "sample_size": result.get("sample_size"),
+                "japan_seller_count": result.get("japan_seller_count", 0),
+                "top_items_json": result.get("top_items", []),
+                "price_dist_json": result.get("price_dist", []),
+                "status": "completed",
+            }
+            session_id = db.create_research_session(session_data)
+            session = db.get_research_session(session_id)
+
+            return jsonify({
+                "success": True,
+                "session": session,
+                "message": "リサーチ完了: {}".format(keyword),
+            })
+        except Exception as e:
+            # エラー時もDBに記録
+            try:
+                err_session = {
+                    "keyword": keyword,
+                    "status": "failed",
+                    "error_msg": str(e),
+                }
+                db.create_research_session(err_session)
+            except Exception:
+                pass
+            return jsonify({"error": "リサーチエラー: {}".format(str(e))}), 500
+
+    @app.route("/api/research/history")
+    def api_research_history():
+        """リサーチ履歴一覧"""
+        keyword = request.args.get("keyword", "").strip() or None
+        limit = request.args.get("limit", "50", type=str)
+        try:
+            limit_int = int(limit)
+        except ValueError:
+            limit_int = 50
+
+        sessions = db.get_research_sessions(keyword=keyword, limit=limit_int)
+        return jsonify({"sessions": sessions, "total": len(sessions)})
+
+    @app.route("/api/research/<int:session_id>")
+    def api_research_detail(session_id):
+        """リサーチ詳細（matches含む）"""
+        session = db.get_research_session(session_id)
+        if not session:
+            return jsonify({"error": "リサーチID {} が見つかりません".format(session_id)}), 404
+
+        # JSONカラムをパース
+        top_items = []
+        if session.get("top_items_json"):
+            try:
+                top_items = json.loads(session["top_items_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        price_dist = []
+        if session.get("price_dist_json"):
+            try:
+                price_dist = json.loads(session["price_dist_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        matches = db.get_research_matches(session_id)
+
+        return jsonify({
+            "session": session,
+            "top_items": top_items,
+            "price_dist": price_dist,
+            "matches": matches,
+        })
+
+    @app.route("/api/research/compare", methods=["POST"])
+    def api_research_compare():
+        """複数キーワード比較（最大5件）"""
+        data = request.get_json(force=True)
+        session_ids = data.get("session_ids", [])
+
+        if not session_ids:
+            return jsonify({"error": "session_idsが空です"}), 400
+
+        try:
+            session_ids = [int(sid) for sid in session_ids[:5]]
+        except (ValueError, TypeError):
+            return jsonify({"error": "session_idsは整数のリストである必要があります"}), 400
+
+        from src.research.research_service import compare_keywords
+        results = compare_keywords(session_ids, db)
+
+        return jsonify({
+            "success": True,
+            "sessions": results,
+            "total": len(results),
+        })
+
+    @app.route("/api/research/<int:session_id>/match-netsea", methods=["POST"])
+    def api_research_match_netsea(session_id):
+        """NETSEAマッチング実行"""
+        session = db.get_research_session(session_id)
+        if not session:
+            return jsonify({"error": "リサーチID {} が見つかりません".format(session_id)}), 404
+
+        data = request.get_json(force=True)
+        supplier_ids = (data.get("supplier_ids") or "").strip()
+
+        if not supplier_ids:
+            return jsonify({"error": "supplier_idsが空です"}), 400
+
+        try:
+            from src.research.research_service import match_netsea_products
+
+            matches = match_netsea_products(
+                keyword=session["keyword"],
+                total_results=session.get("total_results") or 0,
+                median_price_usd=session.get("median_price_usd"),
+                supplier_ids=supplier_ids,
+            )
+
+            # DB保存
+            for m in matches:
+                m["session_id"] = session_id
+                db.create_research_match(m)
+
+            return jsonify({
+                "success": True,
+                "matches": matches,
+                "message": "{}件のマッチング結果".format(len(matches)),
+            })
+        except Exception as e:
+            return jsonify({"error": "NETSEAマッチングエラー: {}".format(str(e))}), 500
 
     # --- SNS APIエンドポイント ---
 

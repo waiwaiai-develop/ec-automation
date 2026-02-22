@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}リサーチ詳細: {{ session.keyword }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <a href="/research" class="text-decoration-none">&larr; リサーチ一覧</a>
+        <h2 class="mt-2">{{ session.keyword }}</h2>
+        <small class="text-muted">調査日時: {{ session.searched_at }} | マーケット: {{ session.marketplace_id }}</small>
+    </div>
+</div>
+
+<!-- KPIカード -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card stat-card primary">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">総出品数</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(session.total_results or 0) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card stat-card success">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">平均価格</div>
+                <div class="fs-4 fw-bold">{{ "${:.2f}".format(session.avg_price_usd) if session.avg_price_usd else "-" }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card stat-card info">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">中央値</div>
+                <div class="fs-4 fw-bold">{{ "${:.2f}".format(session.median_price_usd) if session.median_price_usd else "-" }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card stat-card warning">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">最安値</div>
+                <div class="fs-4 fw-bold">{{ "${:.2f}".format(session.min_price_usd) if session.min_price_usd else "-" }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card stat-card warning">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">最高値</div>
+                <div class="fs-4 fw-bold">{{ "${:.2f}".format(session.max_price_usd) if session.max_price_usd else "-" }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card stat-card primary">
+            <div class="card-body text-center py-2">
+                <div class="text-muted small">日本セラー</div>
+                <div class="fs-4 fw-bold">{{ session.japan_seller_count or 0 }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- グラフエリア -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">価格分布</div>
+            <div class="card-body">
+                <canvas id="priceDistChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">リサーチ概要</div>
+            <div class="card-body">
+                <canvas id="summaryChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- トップ商品テーブル -->
+<div class="card mb-4">
+    <div class="card-header">トップ商品（サンプル: {{ session.sample_size or 0 }}件）</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>タイトル</th>
+                        <th>価格</th>
+                        <th>送料</th>
+                        <th>セラー</th>
+                        <th>リンク</th>
+                    </tr>
+                </thead>
+                <tbody id="topItemsBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- NETSEAマッチング -->
+<div class="card mb-4">
+    <div class="card-header">NETSEAマッチング</div>
+    <div class="card-body">
+        <form id="matchForm" class="row g-3 align-items-end mb-3">
+            <div class="col-md-6">
+                <label class="form-label">サプライヤーID（カンマ区切り）</label>
+                <input type="text" class="form-control" id="supplierIds" placeholder="例: 12345,67890">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-success w-100" id="matchBtn">
+                    NETSEAマッチング実行
+                </button>
+            </div>
+        </form>
+
+        <!-- マッチング結果テーブル -->
+        <div id="matchResults" class="{% if not matches %}d-none{% endif %}">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>商品名</th>
+                            <th>卸値</th>
+                            <th>想定販売価格</th>
+                            <th>利益</th>
+                            <th>利益率</th>
+                            <th>スコア</th>
+                            <th>DS適合</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matchBody">
+                        {% for m in matches %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ m.netsea_name_ja or '-' }}</td>
+                            <td>&yen;{{ "{:,}".format(m.wholesale_price_jpy or 0) }}</td>
+                            <td>${{ "{:.2f}".format(m.suggested_price_usd or 0) }}</td>
+                            <td class="{{ 'text-success' if (m.profit_usd or 0) > 0 else 'text-danger' }}">${{ "{:.2f}".format(m.profit_usd or 0) }}</td>
+                            <td>
+                                {% set margin_pct = ((m.profit_margin or 0) * 100)|round(1) %}
+                                <span class="badge {{ 'bg-success' if margin_pct >= 25 else 'bg-warning text-dark' if margin_pct >= 10 else 'bg-danger' }}">
+                                    {{ margin_pct }}%
+                                </span>
+                            </td>
+                            <td><strong>{{ "{:.1f}".format(m.total_score or 0) }}</strong></td>
+                            <td>
+                                {% if m.direct_send_flag == 'Y' and m.image_copy_flag == 'Y' and m.deal_net_shop_flag == 'Y' %}
+                                <span class="badge bg-success">OK</span>
+                                {% else %}
+                                <span class="badge bg-secondary">NG</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+// トップ商品テーブル描画
+var topItemsJson = {{ top_items | tojson }};
+(function() {
+    var tbody = document.getElementById('topItemsBody');
+    if (!topItemsJson || topItemsJson.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">データなし</td></tr>';
+        return;
+    }
+    var html = '';
+    topItemsJson.forEach(function(item, i) {
+        var price = item.price ? '$' + parseFloat(item.price).toFixed(2) : '-';
+        var shipping = item.shipping ? '$' + parseFloat(item.shipping).toFixed(2) : 'Free';
+        var link = item.item_web_url ? '<a href="' + item.item_web_url + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">eBay</a>' : '-';
+        html += '<tr>'
+            + '<td>' + (i + 1) + '</td>'
+            + '<td>' + (item.title || '-') + '</td>'
+            + '<td>' + price + '</td>'
+            + '<td>' + shipping + '</td>'
+            + '<td>' + (item.seller || '-') + '</td>'
+            + '<td>' + link + '</td>'
+            + '</tr>';
+    });
+    tbody.innerHTML = html;
+})();
+
+// 価格分布チャート
+var priceDistJson = {{ price_dist | tojson }};
+(function() {
+    if (!priceDistJson || priceDistJson.length === 0) return;
+    var ctx = document.getElementById('priceDistChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: priceDistJson.map(function(d) { return d.range; }),
+            datasets: [{
+                label: '商品数',
+                data: priceDistJson.map(function(d) { return d.count; }),
+                backgroundColor: 'rgba(13, 110, 253, 0.6)',
+                borderColor: 'rgba(13, 110, 253, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } }
+            }
+        }
+    });
+})();
+
+// リサーチ概要チャート（価格帯＋送料の横棒）
+(function() {
+    var session = {{ session | tojson }};
+    var ctx = document.getElementById('summaryChart').getContext('2d');
+    var labels = ['最安値', '中央値', '平均価格', '最高値', '平均送料'];
+    var values = [
+        session.min_price_usd || 0,
+        session.median_price_usd || 0,
+        session.avg_price_usd || 0,
+        session.max_price_usd || 0,
+        session.avg_shipping_usd || 0
+    ];
+    var colors = [
+        'rgba(255, 193, 7, 0.7)',
+        'rgba(13, 202, 240, 0.7)',
+        'rgba(25, 135, 84, 0.7)',
+        'rgba(255, 193, 7, 0.7)',
+        'rgba(108, 117, 125, 0.7)'
+    ];
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'USD',
+                data: values,
+                backgroundColor: colors,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true } }
+        }
+    });
+})();
+
+// NETSEAマッチング実行
+document.getElementById('matchForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var supplierIds = document.getElementById('supplierIds').value.trim();
+    if (!supplierIds) {
+        showToast('サプライヤーIDを入力してください', 'warning');
+        return;
+    }
+
+    var btn = document.getElementById('matchBtn');
+    btn.disabled = true;
+    btn.textContent = 'マッチング中...';
+
+    apiRequest('/api/research/{{ session.id }}/match-netsea', {
+        supplier_ids: supplierIds
+    }, function(result) {
+        btn.disabled = false;
+        btn.textContent = 'NETSEAマッチング実行';
+
+        if (result.matches && result.matches.length > 0) {
+            document.getElementById('matchResults').classList.remove('d-none');
+            var tbody = document.getElementById('matchBody');
+            var html = '';
+            result.matches.forEach(function(m, i) {
+                var marginPct = ((m.profit_margin || 0) * 100).toFixed(1);
+                var marginClass = marginPct >= 25 ? 'bg-success' : marginPct >= 10 ? 'bg-warning text-dark' : 'bg-danger';
+                var profitClass = (m.profit_usd || 0) > 0 ? 'text-success' : 'text-danger';
+                var dsOk = m.direct_send_flag === 'Y' && m.image_copy_flag === 'Y' && m.deal_net_shop_flag === 'Y';
+                html += '<tr>'
+                    + '<td>' + (i + 1) + '</td>'
+                    + '<td>' + (m.netsea_name_ja || '-') + '</td>'
+                    + '<td>&yen;' + (m.wholesale_price_jpy || 0).toLocaleString() + '</td>'
+                    + '<td>$' + (m.suggested_price_usd || 0).toFixed(2) + '</td>'
+                    + '<td class="' + profitClass + '">$' + (m.profit_usd || 0).toFixed(2) + '</td>'
+                    + '<td><span class="badge ' + marginClass + '">' + marginPct + '%</span></td>'
+                    + '<td><strong>' + (m.total_score || 0).toFixed(1) + '</strong></td>'
+                    + '<td>' + (dsOk ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-secondary">NG</span>') + '</td>'
+                    + '</tr>';
+            });
+            tbody.innerHTML = html;
+            showToast(result.matches.length + '件のマッチング結果', 'success');
+        } else {
+            showToast('マッチング結果が0件でした', 'warning');
+        }
+    }, function() {
+        btn.disabled = false;
+        btn.textContent = 'NETSEAマッチング実行';
+    });
+});
+</script>
+{% endblock %}

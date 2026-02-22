@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}需要分析{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>需要分析（eBayリサーチ）</h2>
+</div>
+
+<!-- 検索フォーム -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form id="researchForm" class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">キーワード（英語）</label>
+                <input type="text" class="form-control" id="keyword" placeholder="例: japanese tenugui" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">取得件数</label>
+                <select class="form-select" id="limit">
+                    <option value="20">20件</option>
+                    <option value="50" selected>50件</option>
+                    <option value="100">100件</option>
+                    <option value="200">200件</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary w-100" id="searchBtn">
+                    eBay需要調査
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 検索結果プレビュー（実行直後に表示） -->
+<div id="resultPreview" class="card mb-4 d-none">
+    <div class="card-header d-flex justify-content-between">
+        <span id="resultKeyword"></span>
+        <a id="resultLink" href="#" class="btn btn-sm btn-outline-primary">詳細を見る</a>
+    </div>
+    <div class="card-body">
+        <div class="row text-center">
+            <div class="col-md-2">
+                <div class="text-muted small">総出品数</div>
+                <div class="fs-4 fw-bold" id="resultTotal">-</div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-muted small">平均価格</div>
+                <div class="fs-4 fw-bold" id="resultAvg">-</div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-muted small">中央値</div>
+                <div class="fs-4 fw-bold" id="resultMedian">-</div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-muted small">最安値</div>
+                <div class="fs-4 fw-bold" id="resultMin">-</div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-muted small">最高値</div>
+                <div class="fs-4 fw-bold" id="resultMax">-</div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-muted small">日本セラー</div>
+                <div class="fs-4 fw-bold" id="resultJpSellers">-</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- リサーチ履歴 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>リサーチ履歴</span>
+        <div class="input-group" style="max-width:300px;">
+            <input type="text" class="form-control form-control-sm" id="historyFilter" placeholder="キーワードで絞り込み">
+            <button class="btn btn-sm btn-outline-secondary" id="filterBtn">絞込</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>キーワード</th>
+                        <th>総出品数</th>
+                        <th>平均価格</th>
+                        <th>中央価格</th>
+                        <th>日本セラー</th>
+                        <th>ステータス</th>
+                        <th>調査日時</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr><td colspan="9" class="text-center text-muted py-4">読み込み中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+// 履歴読み込み
+function loadHistory(keyword) {
+    var url = '/api/research/history';
+    if (keyword) url += '?keyword=' + encodeURIComponent(keyword);
+
+    fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var tbody = document.getElementById('historyBody');
+        if (!data.sessions || data.sessions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">リサーチ履歴がありません</td></tr>';
+            return;
+        }
+        var html = '';
+        data.sessions.forEach(function(s) {
+            var statusBadge = s.status === 'completed'
+                ? '<span class="badge bg-success">完了</span>'
+                : s.status === 'failed'
+                ? '<span class="badge bg-danger">エラー</span>'
+                : '<span class="badge bg-warning text-dark">実行中</span>';
+            html += '<tr>'
+                + '<td>' + s.id + '</td>'
+                + '<td><strong>' + (s.keyword || '') + '</strong></td>'
+                + '<td>' + (s.total_results != null ? s.total_results.toLocaleString() : '-') + '</td>'
+                + '<td>' + (s.avg_price_usd != null ? '$' + s.avg_price_usd.toFixed(2) : '-') + '</td>'
+                + '<td>' + (s.median_price_usd != null ? '$' + s.median_price_usd.toFixed(2) : '-') + '</td>'
+                + '<td>' + (s.japan_seller_count || 0) + '</td>'
+                + '<td>' + statusBadge + '</td>'
+                + '<td>' + (s.searched_at || '') + '</td>'
+                + '<td><a href="/research/' + s.id + '" class="btn btn-sm btn-outline-primary">詳細</a></td>'
+                + '</tr>';
+        });
+        tbody.innerHTML = html;
+    })
+    .catch(function(err) {
+        document.getElementById('historyBody').innerHTML =
+            '<tr><td colspan="9" class="text-center text-danger py-4">読み込みエラー</td></tr>';
+    });
+}
+
+// 初回読み込み
+loadHistory();
+
+// 絞り込み
+document.getElementById('filterBtn').addEventListener('click', function() {
+    loadHistory(document.getElementById('historyFilter').value.trim());
+});
+document.getElementById('historyFilter').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        loadHistory(this.value.trim());
+    }
+});
+
+// リサーチ実行
+document.getElementById('researchForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var keyword = document.getElementById('keyword').value.trim();
+    if (!keyword) return;
+
+    var btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.textContent = '調査中...';
+
+    apiRequest('/api/research/analyze', {
+        keyword: keyword,
+        limit: parseInt(document.getElementById('limit').value)
+    }, function(result) {
+        btn.disabled = false;
+        btn.textContent = 'eBay需要調査';
+
+        if (result.session) {
+            var s = result.session;
+            // プレビュー表示
+            document.getElementById('resultPreview').classList.remove('d-none');
+            document.getElementById('resultKeyword').textContent = s.keyword;
+            document.getElementById('resultLink').href = '/research/' + s.id;
+            document.getElementById('resultTotal').textContent = s.total_results != null ? s.total_results.toLocaleString() : '-';
+            document.getElementById('resultAvg').textContent = s.avg_price_usd != null ? '$' + s.avg_price_usd.toFixed(2) : '-';
+            document.getElementById('resultMedian').textContent = s.median_price_usd != null ? '$' + s.median_price_usd.toFixed(2) : '-';
+            document.getElementById('resultMin').textContent = s.min_price_usd != null ? '$' + s.min_price_usd.toFixed(2) : '-';
+            document.getElementById('resultMax').textContent = s.max_price_usd != null ? '$' + s.max_price_usd.toFixed(2) : '-';
+            document.getElementById('resultJpSellers').textContent = s.japan_seller_count || 0;
+
+            showToast('リサーチ完了: ' + s.keyword, 'success');
+            loadHistory();
+        }
+    }, function() {
+        btn.disabled = false;
+        btn.textContent = 'eBay需要調査';
+    });
+});
+</script>
+{% endblock %}

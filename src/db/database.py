@@ -789,6 +789,130 @@ class Database:
             )
             return cursor.rowcount > 0
 
+    # --- リサーチ CRUD ---
+
+    def create_research_session(self, session: Dict[str, Any]) -> int:
+        """リサーチセッションを作成。session IDを返す"""
+        with self.connect() as conn:
+            top_items = session.get("top_items_json")
+            if isinstance(top_items, list):
+                top_items = json.dumps(top_items, ensure_ascii=False)
+            price_dist = session.get("price_dist_json")
+            if isinstance(price_dist, list):
+                price_dist = json.dumps(price_dist, ensure_ascii=False)
+
+            cursor = conn.execute(
+                """INSERT INTO research_sessions
+                   (keyword, marketplace_id, total_results,
+                    avg_price_usd, min_price_usd, max_price_usd,
+                    median_price_usd, avg_shipping_usd, sample_size,
+                    japan_seller_count, top_items_json, price_dist_json,
+                    status, error_msg)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session["keyword"],
+                    session.get("marketplace_id", "EBAY_US"),
+                    session.get("total_results"),
+                    session.get("avg_price_usd"),
+                    session.get("min_price_usd"),
+                    session.get("max_price_usd"),
+                    session.get("median_price_usd"),
+                    session.get("avg_shipping_usd"),
+                    session.get("sample_size"),
+                    session.get("japan_seller_count", 0),
+                    top_items,
+                    price_dist,
+                    session.get("status", "completed"),
+                    session.get("error_msg"),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_research_session(self, session_id: int) -> Optional[dict]:
+        """リサーチセッションをIDで取得"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM research_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_research_sessions(
+        self,
+        keyword: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """リサーチセッション一覧を取得"""
+        query = "SELECT * FROM research_sessions WHERE 1=1"
+        params: List[Any] = []
+
+        if keyword:
+            query += " AND keyword LIKE ?"
+            params.append("%{}%".format(keyword))
+
+        query += " ORDER BY searched_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    def create_research_match(self, match: Dict[str, Any]) -> int:
+        """リサーチマッチングを作成。match IDを返す"""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO research_matches
+                   (session_id, netsea_product_id, netsea_name_ja,
+                    wholesale_price_jpy, suggested_price_usd,
+                    profit_usd, profit_margin, profitable,
+                    demand_score, margin_score, competition_score,
+                    total_score, direct_send_flag, image_copy_flag,
+                    deal_net_shop_flag)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    match["session_id"],
+                    match.get("netsea_product_id"),
+                    match.get("netsea_name_ja"),
+                    match.get("wholesale_price_jpy"),
+                    match.get("suggested_price_usd"),
+                    match.get("profit_usd"),
+                    match.get("profit_margin"),
+                    match.get("profitable", False),
+                    match.get("demand_score"),
+                    match.get("margin_score"),
+                    match.get("competition_score"),
+                    match.get("total_score"),
+                    match.get("direct_send_flag"),
+                    match.get("image_copy_flag"),
+                    match.get("deal_net_shop_flag"),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_research_matches(self, session_id: int) -> List[dict]:
+        """セッションに紐づくマッチング結果を取得（スコア降順）"""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM research_matches
+                   WHERE session_id = ?
+                   ORDER BY total_score DESC""",
+                (session_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_research_session(self, session_id: int) -> bool:
+        """リサーチセッションを削除（関連マッチングも削除）"""
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM research_matches WHERE session_id = ?",
+                (session_id,),
+            )
+            cursor = conn.execute(
+                "DELETE FROM research_sessions WHERE id = ?",
+                (session_id,),
+            )
+            return cursor.rowcount > 0
+
     def get_daily_summary(self, date: Optional[str] = None) -> Dict[str, Any]:
         """日次サマリーを取得"""
         if date is None:
