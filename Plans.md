@@ -2,7 +2,7 @@
 
 > **ソース**: `Japan_DropShip_BattlePlan_v2.docx`
 > **最終更新**: 2026-02-21
-> **現在フェーズ**: Phase 1完了 → Phase 2 自動化構築
+> **現在フェーズ**: Phase 2完了 → Phase 3 スケール準備
 
 ---
 
@@ -46,62 +46,65 @@ python -m src.cli.main netsea import --supplier-id 79841
 - [x] 利益計算エンジン（送料テーブル・eBay手数料・利益率算出・推奨価格提示）
 - [x] AI商品説明生成（Claude API: 英語タイトル + 説明文 + Item Specifics + SEOタグ13個）
 - [x] CLIツール（db / netsea / research / product の各コマンド群）
-- [x] テスト一式（137テスト通過: ban_filter, database, description_generator, netsea, profit 他）
+- [x] テスト一式（255+テスト通過: ban_filter, database, description_generator, netsea, profit, platform_clients, web_api, research, topseller, translator 他）
+- [x] React SPA フロントエンド（Vite + TypeScript + shadcn/ui: ダッシュボード・商品・出品・注文）
+- [x] 商品リサーチWeb UI（需要分析・競合分析・NETSEAマッチング・Chart.jsグラフ）
+- [x] SNS投稿管理（AI生成・予約投稿・カレンダービュー）
 
 ---
 
-## Phase 2: 自動化構築（優先度順）
+## Phase 2: 自動化構築（優先度順） — **全項目完了**
 
-### 2-1. Etsy API 連携 `cc:TODO`
-- [ ] Etsy OAuth 2.0 認証フロー実装（`src/platforms/etsy.py`）
-- [ ] リスティング作成API（craft supplies カテゴリ固定）
-- [ ] 画像アップロード対応
-- [ ] リスティング更新・非公開API
-- [ ] Etsy手数料を利益計算に追加（リスティング$0.20 + トランザクション6.5% + 決済3%+$0.25）
+### 2-1. Etsy API 連携 `cc:DONE`
+- [x] Etsy OAuth 2.0 認証フロー実装（`src/platforms/etsy.py`）
+- [x] リスティング作成API（craft supplies カテゴリ固定）
+- [x] 画像アップロード対応
+- [x] リスティング更新・非公開API
+- [x] Etsy手数料を利益計算に追加（リスティング$0.20 + トランザクション6.5% + 決済3%+$0.25）
 
-### 2-2. eBay Inventory API 連携 `cc:TODO`
-- [ ] eBay OAuth 2.0 認証フロー実装（`src/platforms/ebay.py`）
-- [ ] Inventory API でリスティング作成（Sell API: createOrReplaceInventoryItem）
-- [ ] UK/IE配送除外設定の自動適用（包丁カテゴリ）
-- [ ] リスティング更新・非公開API
-- [ ] eBay Production API キー取得・切替対応
+### 2-2. eBay Inventory API 連携 `cc:DONE`
+- [x] eBay OAuth 2.0 認証フロー実装（`src/platforms/ebay.py`）
+- [x] Inventory API でリスティング作成（Sell API: createOrReplaceInventoryItem）
+- [x] UK/IE配送除外設定の自動適用（包丁カテゴリ）
+- [x] リスティング更新・非公開API
+- [x] eBay Production API キー取得・切替対応
 
-### 2-3. 在庫同期システム `cc:TODO`
-- [ ] 在庫同期エンジン実装（`src/sync/inventory_sync.py`）
-- [ ] NETSEA在庫状態の定期チェック（15分間隔）
-- [ ] 品切れ商品の自動非公開（Etsy/eBay両方）
-- [ ] 在庫復活時の自動再公開
-- [ ] cron設定スクリプト（VPS用）
+### 2-3. 在庫同期システム `cc:DONE`
+- [x] 在庫同期エンジン実装（`src/sync/inventory_sync.py`）
+- [x] NETSEA在庫状態の定期チェック（15分間隔）
+- [x] 品切れ商品の自動非公開（Etsy/eBay両方）
+- [x] 在庫復活時の自動再公開
+- [x] cron設定スクリプト（VPS用）
 
-### 2-4. 注文処理・自動仕入れ `cc:TODO`
-- [ ] 注文検出（eBay/Etsy API ポーリング）
-- [ ] NETSEA自動発注フロー（注文検出→卸先発注）
-- [ ] 追跡番号の自動取得・プラットフォーム連携
-- [ ] 注文ステータスDB管理（orders テーブル活用）
+### 2-4. 注文処理・自動仕入れ `cc:DONE`
+- [x] 注文検出（eBay/Etsy API ポーリング）
+- [x] NETSEA自動発注フロー（注文検出→卸先発注）
+- [x] 追跡番号の自動取得・プラットフォーム連携
+- [x] 注文ステータスDB管理（orders テーブル活用）
 
-### 2-5. 通知システム（LINE Notify） `cc:TODO`
-- [ ] LINE Notify API 連携（`src/notifications/line.py`）
-- [ ] 注文受信通知
-- [ ] 在庫切れアラート
-- [ ] 日次売上サマリー通知
-- [ ] エラー・異常検知通知
+### 2-5. 通知システム（LINE Notify） `cc:DONE`
+- [x] LINE Notify API 連携（`src/notifications/line.py`）
+- [x] 注文受信通知
+- [x] 在庫切れアラート
+- [x] 日次売上サマリー通知
+- [x] エラー・異常検知通知
 
-### 2-6. ダッシュボード（Google Sheets） `cc:TODO`
-- [ ] Google Sheets API 連携（`src/dashboard/sheets.py`）
-- [ ] 売上・利益レポート自動更新
-- [ ] 在庫状況一覧
-- [ ] アカウントメトリクス（Defect Rate, Late Shipment Rate）
-- [ ] GAS（Google Apps Script）トリガー設定
+### 2-6. ダッシュボード（Google Sheets） `cc:DONE`
+- [x] Google Sheets API 連携（`src/dashboard/sheets.py`）
+- [x] 売上・利益レポート自動更新
+- [x] 在庫状況一覧
+- [x] アカウントメトリクス（Defect Rate, Late Shipment Rate）
+- [x] GAS（Google Apps Script）トリガー設定
 
-### 2-7. TopSeller スクレイパー追加 `cc:TODO`
-- [ ] TopSeller商品収集（Playwright、`src/scraper/topseller.py`）
-- [ ] 既存DB・CLIとの統合
-- [ ] TopSeller固有の重量・カテゴリ抽出ロジック
+### 2-7. TopSeller スクレイパー追加 `cc:DONE`
+- [x] TopSeller商品収集（Playwright、`src/scraper/topseller.py`）
+- [x] 既存DB・CLIとの統合（map_to_db形式）
+- [x] TopSeller固有の重量・カテゴリ抽出ロジック
 
-### 2-8. DeepL API 翻訳連携 `cc:TODO`
-- [ ] DeepL API Free クライアント（`src/ai/translator.py`）
-- [ ] 商品名の日→英翻訳（Claude APIの補助として）
-- [ ] バッチ翻訳対応
+### 2-8. DeepL API 翻訳連携 `cc:DONE`
+- [x] DeepL API Free クライアント（`src/ai/translator.py`）
+- [x] 商品名の日→英翻訳（Claude APIの補助として）
+- [x] バッチ翻訳対応（50件ずつ一括処理）
 
 ---
 
