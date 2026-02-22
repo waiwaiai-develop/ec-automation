@@ -185,6 +185,25 @@ CREATE TABLE IF NOT EXISTS sync_log (
 );
 """
 
+# SNS投稿管理
+SNS_POSTS_TABLE = """
+CREATE TABLE IF NOT EXISTS sns_posts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id          INTEGER REFERENCES products(id),
+    platform            TEXT NOT NULL,            -- 'twitter','instagram','threads'
+    body                TEXT NOT NULL DEFAULT '',
+    image_urls          TEXT,                     -- JSON array
+    hashtags            TEXT,
+    status              TEXT DEFAULT 'draft',     -- 'draft','scheduled','posted','failed'
+    scheduled_at        DATETIME,
+    posted_at           DATETIME,
+    platform_post_id    TEXT,
+    error_message       TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 # 全テーブル定義（作成順）
 ALL_TABLES = [
     ("products", PRODUCTS_TABLE),
@@ -196,6 +215,7 @@ ALL_TABLES = [
     ("research_sessions", RESEARCH_SESSIONS_TABLE),
     ("research_matches", RESEARCH_MATCHES_TABLE),
     ("sync_log", SYNC_LOG_TABLE),
+    ("sns_posts", SNS_POSTS_TABLE),
 ]
 
 # シードデータ: 包丁の配送制限（UK/IE）

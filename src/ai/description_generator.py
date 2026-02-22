@@ -229,6 +229,74 @@ def generate_description_ja(
     return _parse_json_response(response.content[0].text)
 
 
+def generate_sns_post(
+    product: Dict,
+    platform: str = "twitter",
+    model: Optional[str] = None,
+) -> Dict:
+    """SNS投稿文を生成（プラットフォーム別の文字数制限・トーン指定）
+
+    Args:
+        product: 商品データ dict
+        platform: twitter / instagram / threads
+        model: 使用モデル（デフォルト: claude-sonnet-4-6）
+
+    Returns:
+        {"body": str, "hashtags": str}
+    """
+    client = _get_client()
+    model = model or DEFAULT_MODEL
+
+    char_limits = {"twitter": 250, "instagram": 2000, "threads": 450}
+    char_limit = char_limits.get(platform, 250)
+
+    tone_map = {
+        "twitter": "簡潔でキャッチー、絵文字も1-2個使って親しみやすく",
+        "instagram": "丁寧でストーリー性のある文章、商品の魅力を深掘り",
+        "threads": "カジュアルで会話的、共感を誘うトーン",
+    }
+    tone = tone_map.get(platform, tone_map["twitter"])
+
+    product_info = "商品名: {}\n".format(product.get("name_ja", "不明"))
+    if product.get("category"):
+        product_info += "カテゴリ: {}\n".format(product["category"])
+    if product.get("description_ja"):
+        product_info += "説明: {}\n".format(product["description_ja"][:300])
+
+    system_prompt = (
+        "あなたは日本の伝統工芸品・文化商品のSNSマーケティング専門家です。"
+        "日本語で魅力的な投稿文を作成してください。"
+    )
+
+    user_prompt = """{product_info}
+プラットフォーム: {platform}
+文字数制限: {char_limit}文字以内
+トーン: {tone}
+
+ルール:
+- 商品の魅力・日本文化との繋がりを伝える
+- ブランド名は絶対に含めない
+- ドロップシッピング・卸売の記述は含めない
+- ハッシュタグは日本語と英語を混ぜて5-8個
+
+出力JSON:
+{{"body": "投稿本文", "hashtags": "#タグ1 #タグ2 ..."}}""".format(
+        product_info=product_info,
+        platform=platform,
+        char_limit=char_limit,
+        tone=tone,
+    )
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=512,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    return _parse_json_response(response.content[0].text)
+
+
 def generate_full_listing(
     product: Dict,
     model: Optional[str] = None,

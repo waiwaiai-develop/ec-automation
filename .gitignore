@@ -26,7 +26,12 @@ Thumbs.db
 data/*.db
 data/*.db-journal
 
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+
 # Config secrets
 config/.env
 config/tokens/
 config/google_sa.json
+service-account-*.json

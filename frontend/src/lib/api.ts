@@ -8,6 +8,9 @@ import type {
   SnsPost,
   SnsPlatform,
   SnsPostStatus,
+  HistoryResponse,
+  PlatformStatsResponse,
+  ScoringResponse,
 } from '@/types'
 
 const BASE = '/api'
@@ -35,17 +38,33 @@ export function getDashboard() {
   return fetchJson<DashboardResponse>(`${BASE}/dashboard`)
 }
 
+export function getDashboardHistory(days: number = 30) {
+  return fetchJson<HistoryResponse>(`${BASE}/dashboard/history?days=${days}`)
+}
+
+export function getPlatformStats() {
+  return fetchJson<PlatformStatsResponse>(`${BASE}/dashboard/platform-stats`)
+}
+
+export function getProductsScoring() {
+  return fetchJson<ScoringResponse>(`${BASE}/products/scoring`)
+}
+
 export function getProducts(params?: {
   category?: string
   stock_status?: string
   ds_only?: string
   limit?: number
+  offset?: number
+  search?: string
 }) {
   const sp = new URLSearchParams()
   if (params?.category) sp.set('category', params.category)
   if (params?.stock_status) sp.set('stock_status', params.stock_status)
   if (params?.ds_only) sp.set('ds_only', params.ds_only)
   if (params?.limit) sp.set('limit', String(params.limit))
+  if (params?.offset) sp.set('offset', String(params.offset))
+  if (params?.search) sp.set('search', params.search)
   const qs = sp.toString()
   return fetchJson<ProductsResponse>(`${BASE}/products${qs ? '?' + qs : ''}`)
 }
@@ -58,11 +77,15 @@ export function getListings(params?: {
   platform?: string
   status?: string
   limit?: number
+  offset?: number
+  search?: string
 }) {
   const sp = new URLSearchParams()
   if (params?.platform) sp.set('platform', params.platform)
   if (params?.status) sp.set('status', params.status)
   if (params?.limit) sp.set('limit', String(params.limit))
+  if (params?.offset) sp.set('offset', String(params.offset))
+  if (params?.search) sp.set('search', params.search)
   const qs = sp.toString()
   return fetchJson<ListingsResponse>(`${BASE}/listings${qs ? '?' + qs : ''}`)
 }
@@ -71,11 +94,15 @@ export function getOrders(params?: {
   platform?: string
   status?: string
   limit?: number
+  offset?: number
+  search?: string
 }) {
   const sp = new URLSearchParams()
   if (params?.platform) sp.set('platform', params.platform)
   if (params?.status) sp.set('status', params.status)
   if (params?.limit) sp.set('limit', String(params.limit))
+  if (params?.offset) sp.set('offset', String(params.offset))
+  if (params?.search) sp.set('search', params.search)
   const qs = sp.toString()
   return fetchJson<OrdersResponse>(`${BASE}/orders${qs ? '?' + qs : ''}`)
 }
@@ -188,6 +215,7 @@ export function getSnsPosts(params?: {
   date_from?: string
   date_to?: string
   limit?: number
+  offset?: number
 }) {
   const sp = new URLSearchParams()
   if (params?.platform) sp.set('platform', params.platform)
@@ -195,6 +223,7 @@ export function getSnsPosts(params?: {
   if (params?.date_from) sp.set('date_from', params.date_from)
   if (params?.date_to) sp.set('date_to', params.date_to)
   if (params?.limit) sp.set('limit', String(params.limit))
+  if (params?.offset) sp.set('offset', String(params.offset))
   const qs = sp.toString()
   return fetchJson<SnsPostsResponse>(`${BASE}/sns/posts${qs ? '?' + qs : ''}`)
 }

@@ -328,15 +328,21 @@ def create_app(db_path=None):
 
     @app.route("/api/products")
     def api_products_list():
-        """商品リスト（フィルター付き）"""
+        """商品リスト（フィルター・ページネーション・検索付き）"""
         category = request.args.get("category", "").strip() or None
         stock_status = request.args.get("stock_status", "").strip() or None
         ds_only = request.args.get("ds_only", "").strip()
-        limit = request.args.get("limit", "100", type=str)
+        search = request.args.get("search", "").strip() or None
+        limit = request.args.get("limit", "50", type=str)
+        offset = request.args.get("offset", "0", type=str)
         try:
             limit_int = int(limit)
         except ValueError:
-            limit_int = 100
+            limit_int = 50
+        try:
+            offset_int = int(offset)
+        except ValueError:
+            offset_int = 0
 
         # カテゴリ一覧
         categories = []
@@ -348,6 +354,14 @@ def create_app(db_path=None):
                 categories = [row["category"] for row in rows]
         except Exception:
             pass
+
+        # フィルタ後の総件数
+        total = db.count_products(
+            category=category,
+            stock_status=stock_status,
+            search=search,
+            ds_only=(ds_only == "1"),
+        )
 
         # 商品クエリ
         query = "SELECT * FROM products WHERE 1=1"
@@ -362,8 +376,12 @@ def create_app(db_path=None):
             query += (" AND direct_send_flag = 'Y'"
                       " AND image_copy_flag = 'Y'"
                       " AND deal_net_shop_flag = 'Y'")
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit_int)
+        if search:
+            query += " AND (name_ja LIKE ? OR name_en LIKE ?)"
+            like = "%{}%".format(search)
+            params.extend([like, like])
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit_int, offset_int])
 
         with db.connect() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -372,7 +390,9 @@ def create_app(db_path=None):
         return jsonify({
             "products": product_list,
             "categories": categories,
-            "total": len(product_list),
+            "total": total,
+            "limit": limit_int,
+            "offset": offset_int,
         })
 
     @app.route("/api/products/<int:product_id>")
@@ -413,35 +433,65 @@ def create_app(db_path=None):
 
     @app.route("/api/listings")
     def api_listings_list():
-        """リスティング一覧"""
+        """リスティング一覧（ページネーション・検索付き）"""
         platform = request.args.get("platform", "").strip() or None
         status = request.args.get("status", "").strip() or None
-        limit = request.args.get("limit", "100", type=str)
+        search = request.args.get("search", "").strip() or None
+        limit = request.args.get("limit", "50", type=str)
+        offset = request.args.get("offset", "0", type=str)
         try:
             limit_int = int(limit)
         except ValueError:
-            limit_int = 100
+            limit_int = 50
+        try:
+            offset_int = int(offset)
+        except ValueError:
+            offset_int = 0
 
-        listing_list = db.get_listings(
-            platform=platform, status=status, limit=limit_int
+        total = db.count_listings(
+            platform=platform, status=status, search=search
         )
-        return jsonify({"listings": listing_list, "total": len(listing_list)})
+        listing_list = db.get_listings(
+            platform=platform, status=status, limit=limit_int,
+            offset=offset_int, search=search,
+        )
+        return jsonify({
+            "listings": listing_list,
+            "total": total,
+            "limit": limit_int,
+            "offset": offset_int,
+        })
 
     @app.route("/api/orders")
     def api_orders_list():
-        """注文一覧"""
+        """注文一覧（ページネーション・検索付き）"""
         platform = request.args.get("platform", "").strip() or None
         status = request.args.get("status", "").strip() or None
-        limit = request.args.get("limit", "100", type=str)
+        search = request.args.get("search", "").strip() or None
+        limit = request.args.get("limit", "50", type=str)
+        offset = request.args.get("offset", "0", type=str)
         try:
             limit_int = int(limit)
         except ValueError:
-            limit_int = 100
+            limit_int = 50
+        try:
+            offset_int = int(offset)
+        except ValueError:
+            offset_int = 0
 
-        order_list = db.get_orders(
-            platform=platform, status=status, limit=limit_int
+        total = db.count_orders(
+            platform=platform, status=status, search=search
         )
-        return jsonify({"orders": order_list, "total": len(order_list)})
+        order_list = db.get_orders(
+            platform=platform, status=status, limit=limit_int,
+            offset=offset_int, search=search,
+        )
+        return jsonify({
+            "orders": order_list,
+            "total": total,
+            "limit": limit_int,
+            "offset": offset_int,
+        })
 
     # --- POST APIエンドポイント ---
 
@@ -1047,23 +1097,37 @@ def create_app(db_path=None):
 
     @app.route("/api/sns/posts")
     def api_sns_posts_list():
-        """SNS投稿一覧（date_from/date_toで予約日時範囲フィルター可）"""
+        """SNS投稿一覧（date_from/date_toで予約日時範囲フィルター可、ページネーション付き）"""
         platform = request.args.get("platform", "").strip() or None
         status = request.args.get("status", "").strip() or None
         date_from = request.args.get("date_from", "").strip() or None
         date_to = request.args.get("date_to", "").strip() or None
         limit = request.args.get("limit", "50", type=str)
+        offset = request.args.get("offset", "0", type=str)
         try:
             limit_int = int(limit)
         except ValueError:
             limit_int = 50
+        try:
+            offset_int = int(offset)
+        except ValueError:
+            offset_int = 0
 
+        total = db.count_sns_posts(
+            platform=platform, status=status,
+            date_from=date_from, date_to=date_to,
+        )
         posts = db.get_sns_posts(
             platform=platform, status=status,
             date_from=date_from, date_to=date_to,
-            limit=limit_int,
+            limit=limit_int, offset=offset_int,
         )
-        return jsonify({"posts": posts, "total": len(posts)})
+        return jsonify({
+            "posts": posts,
+            "total": total,
+            "limit": limit_int,
+            "offset": offset_int,
+        })
 
     @app.route("/api/sns/posts", methods=["POST"])
     def api_sns_posts_create():
@@ -1142,7 +1206,7 @@ def create_app(db_path=None):
 
     @app.route("/api/sns/generate", methods=["POST"])
     def api_sns_generate():
-        """SNS投稿文をAI生成（スタブ: テンプレ返却）"""
+        """SNS投稿文をAI生成（Claude APIで生成、未設定時はテンプレートにフォールバック）"""
         data = request.get_json(force=True)
         product_id = data.get("product_id")
         platform = data.get("platform", "twitter")
@@ -1154,10 +1218,26 @@ def create_app(db_path=None):
         if not product:
             return jsonify({"error": "商品ID {} が見つかりません".format(product_id)}), 404
 
+        # Claude APIで生成を試みる
+        try:
+            from src.ai.description_generator import generate_sns_post
+            result = generate_sns_post(product, platform=platform)
+            return jsonify({
+                "success": True,
+                "body": result.get("body", ""),
+                "hashtags": result.get("hashtags", ""),
+            })
+        except (ValueError, ImportError):
+            # ANTHROPIC_API_KEY未設定時はテンプレートにフォールバック
+            pass
+        except Exception as e:
+            # その他エラーもフォールバック（ログは出力）
+            traceback.print_exc()
+
+        # フォールバック: テンプレート生成
         name = product.get("name_ja", "商品")
         category = product.get("category", "")
 
-        # スタブ: テンプレートで投稿文を生成
         hashtag_map = {
             "tenugui": "#手ぬぐい #tenugui #japanesetextile",
             "furoshiki": "#風呂敷 #furoshiki #japaneseculture",
@@ -1176,6 +1256,142 @@ def create_app(db_path=None):
             "body": body,
             "hashtags": hashtags,
         })
+
+    # --- ダッシュボード拡張API ---
+
+    @app.route("/api/dashboard/history")
+    def api_dashboard_history():
+        """日次売上・利益推移（ordersテーブルから集計）"""
+        days = request.args.get("days", "30", type=str)
+        try:
+            days_int = int(days)
+        except ValueError:
+            days_int = 30
+
+        with db.connect() as conn:
+            rows = conn.execute(
+                """SELECT date(ordered_at) as date,
+                          COUNT(*) as orders_count,
+                          COALESCE(SUM(sale_price_usd), 0) as revenue_usd,
+                          COALESCE(SUM(profit_usd), 0) as profit_usd
+                   FROM orders
+                   WHERE ordered_at IS NOT NULL
+                     AND date(ordered_at) >= date('now', ?)
+                   GROUP BY date(ordered_at)
+                   ORDER BY date(ordered_at)""",
+                ("-{} days".format(days_int),),
+            ).fetchall()
+
+            history = [dict(row) for row in rows]
+
+        return jsonify({"history": history, "days": days_int})
+
+    @app.route("/api/dashboard/platform-stats")
+    def api_dashboard_platform_stats():
+        """プラットフォーム別出品数・売上"""
+        with db.connect() as conn:
+            listing_rows = conn.execute(
+                """SELECT platform,
+                          COUNT(*) as total,
+                          SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active
+                   FROM listings
+                   GROUP BY platform"""
+            ).fetchall()
+
+            order_rows = conn.execute(
+                """SELECT platform,
+                          COUNT(*) as orders,
+                          COALESCE(SUM(sale_price_usd), 0) as revenue_usd,
+                          COALESCE(SUM(profit_usd), 0) as profit_usd
+                   FROM orders
+                   GROUP BY platform"""
+            ).fetchall()
+
+        platforms = {}
+        for row in listing_rows:
+            d = dict(row)
+            platforms[d["platform"]] = {
+                "listings_total": d["total"],
+                "listings_active": d["active"],
+                "orders": 0,
+                "revenue_usd": 0,
+                "profit_usd": 0,
+            }
+        for row in order_rows:
+            d = dict(row)
+            p = d["platform"]
+            if p not in platforms:
+                platforms[p] = {
+                    "listings_total": 0,
+                    "listings_active": 0,
+                }
+            platforms[p]["orders"] = d["orders"]
+            platforms[p]["revenue_usd"] = d["revenue_usd"]
+            platforms[p]["profit_usd"] = d["profit_usd"]
+
+        return jsonify({"platforms": platforms})
+
+    @app.route("/api/products/scoring")
+    def api_products_scoring():
+        """出品候補スコアリング（DS対応・在庫・英語コンテンツでスコア算出）"""
+        with db.connect() as conn:
+            rows = conn.execute(
+                """SELECT p.id, p.name_ja, p.name_en, p.description_en,
+                          p.category, p.wholesale_price_jpy,
+                          p.stock_status, p.direct_send_flag,
+                          p.image_copy_flag, p.deal_net_shop_flag,
+                          p.image_urls
+                   FROM products p
+                   LEFT JOIN listings l ON p.id = l.product_id
+                   WHERE l.id IS NULL
+                   ORDER BY p.updated_at DESC
+                   LIMIT 100"""
+            ).fetchall()
+
+        scored = []
+        for row in rows:
+            d = dict(row)
+            score = 0
+            reasons = []
+            # DS対応フラグ（各1点、計3点）
+            if d.get("direct_send_flag") == "Y":
+                score += 1
+                reasons.append("direct_send")
+            if d.get("image_copy_flag") == "Y":
+                score += 1
+                reasons.append("image_copy")
+            if d.get("deal_net_shop_flag") == "Y":
+                score += 1
+                reasons.append("deal_net_shop")
+            # 在庫あり（1点）
+            if d.get("stock_status") == "in_stock":
+                score += 1
+                reasons.append("in_stock")
+            # 英語タイトルあり（1点）
+            if d.get("name_en"):
+                score += 1
+                reasons.append("name_en")
+            # 英語説明あり（1点）
+            if d.get("description_en"):
+                score += 1
+                reasons.append("description_en")
+
+            scored.append({
+                "id": d["id"],
+                "name_ja": d["name_ja"],
+                "name_en": d.get("name_en"),
+                "category": d.get("category"),
+                "wholesale_price_jpy": d.get("wholesale_price_jpy"),
+                "stock_status": d.get("stock_status"),
+                "score": score,
+                "max_score": 6,
+                "reasons": reasons,
+            })
+
+        # スコア降順でソート
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        return jsonify({"candidates": scored[:10]})
 
     @app.route("/api/products/<int:product_id>/profit", methods=["POST"])
     def api_profit(product_id):

@@ -260,6 +260,8 @@ class Database:
         supplier: Optional[str] = None,
         category: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
     ) -> List[dict]:
         """商品一覧を取得"""
         query = "SELECT * FROM products WHERE 1=1"
@@ -271,13 +273,51 @@ class Database:
         if category:
             query += " AND category = ?"
             params.append(category)
+        if search:
+            query += " AND (name_ja LIKE ? OR name_en LIKE ?)"
+            like = "%{}%".format(search)
+            params.extend([like, like])
 
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
+
+    def count_products(
+        self,
+        supplier: Optional[str] = None,
+        category: Optional[str] = None,
+        search: Optional[str] = None,
+        stock_status: Optional[str] = None,
+        ds_only: bool = False,
+    ) -> int:
+        """フィルタ条件に合致する商品の総件数を返す"""
+        query = "SELECT COUNT(*) as cnt FROM products WHERE 1=1"
+        params = []  # type: List[Any]
+
+        if supplier:
+            query += " AND supplier = ?"
+            params.append(supplier)
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        if stock_status:
+            query += " AND stock_status = ?"
+            params.append(stock_status)
+        if ds_only:
+            query += (" AND direct_send_flag = 'Y'"
+                      " AND image_copy_flag = 'Y'"
+                      " AND deal_net_shop_flag = 'Y'")
+        if search:
+            query += " AND (name_ja LIKE ? OR name_en LIKE ?)"
+            like = "%{}%".format(search)
+            params.extend([like, like])
+
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+            return row["cnt"]
 
     def is_brand_blacklisted(self, text: str) -> List[dict]:
         """テキスト内にブラックリストブランドが含まれるか検査"""
@@ -359,6 +399,8 @@ class Database:
         status: Optional[str] = None,
         product_id: Optional[int] = None,
         limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
     ) -> List[dict]:
         """リスティング一覧を取得"""
         query = "SELECT * FROM listings WHERE 1=1"
@@ -373,13 +415,40 @@ class Database:
         if product_id:
             query += " AND product_id = ?"
             params.append(product_id)
+        if search:
+            query += " AND title_en LIKE ?"
+            params.append("%{}%".format(search))
 
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
+
+    def count_listings(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> int:
+        """フィルタ条件に合致するリスティングの総件数"""
+        query = "SELECT COUNT(*) as cnt FROM listings WHERE 1=1"
+        params = []  # type: List[Any]
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if search:
+            query += " AND title_en LIKE ?"
+            params.append("%{}%".format(search))
+
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+            return row["cnt"]
 
     def update_listing(self, listing_id: int, updates: Dict[str, Any]) -> bool:
         """リスティングを更新"""
@@ -503,6 +572,8 @@ class Database:
         platform: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
     ) -> List[dict]:
         """注文一覧を取得"""
         query = "SELECT * FROM orders WHERE 1=1"
@@ -514,13 +585,42 @@ class Database:
         if status:
             query += " AND status = ?"
             params.append(status)
+        if search:
+            query += " AND (buyer_name LIKE ? OR platform_order_id LIKE ?)"
+            like = "%{}%".format(search)
+            params.extend([like, like])
 
-        query += " ORDER BY ordered_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY ordered_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
+
+    def count_orders(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> int:
+        """フィルタ条件に合致する注文の総件数"""
+        query = "SELECT COUNT(*) as cnt FROM orders WHERE 1=1"
+        params = []  # type: List[Any]
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if search:
+            query += " AND (buyer_name LIKE ? OR platform_order_id LIKE ?)"
+            like = "%{}%".format(search)
+            params.extend([like, like])
+
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+            return row["cnt"]
 
     def update_order(self, order_id: int, updates: Dict[str, Any]) -> bool:
         """注文を更新"""
@@ -718,6 +818,7 @@ class Database:
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> List[dict]:
         """SNS投稿一覧を取得（date_from/date_toで予約日時フィルター可）"""
         query = "SELECT * FROM sns_posts WHERE 1=1"
@@ -736,12 +837,40 @@ class Database:
             query += " AND scheduled_at < ?"
             params.append(date_to)
 
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
+
+    def count_sns_posts(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> int:
+        """フィルタ条件に合致するSNS投稿の総件数"""
+        query = "SELECT COUNT(*) as cnt FROM sns_posts WHERE 1=1"
+        params = []  # type: List[Any]
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if date_from:
+            query += " AND scheduled_at >= ?"
+            params.append(date_from)
+        if date_to:
+            query += " AND scheduled_at < ?"
+            params.append(date_to)
+
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+            return row["cnt"]
 
     def update_sns_post(self, post_id: int, updates: Dict[str, Any]) -> bool:
         """SNS投稿を更新"""
