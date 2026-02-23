@@ -9,17 +9,10 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { useState } from 'react'
-import { List, Eye, Heart, TrendingUp, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ShoppingCart, Eye, Heart, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
 import {
   Table,
   TableBody,
@@ -30,6 +23,8 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformBadge, StatusBadge } from '@/components/shared/Badges'
+import { FilterBar, type FilterOption } from '@/components/shared/FilterBar'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { Pagination } from '@/components/shared/Pagination'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { useApi } from '@/hooks/use-api'
@@ -74,17 +69,17 @@ export function ListingsPage() {
   const columns = useMemo<ColumnDef<Listing>[]>(() => [
     {
       accessorKey: 'platform',
-      header: 'Platform',
+      header: 'プラットフォーム',
       cell: ({ getValue }) => <PlatformBadge platform={getValue() as string} />,
       size: 120,
     },
     {
       accessorKey: 'title_en',
-      header: 'Title',
+      header: 'タイトル',
       cell: ({ row }) => (
         <Link
           to={`/products/${row.original.product_id}`}
-          className="text-sm font-medium hover:text-blue-600 hover:underline transition-colors line-clamp-1"
+          className="text-sm font-medium hover:text-primary hover:underline transition-colors line-clamp-1"
         >
           {row.original.title_en || '-'}
         </Link>
@@ -92,13 +87,13 @@ export function ListingsPage() {
     },
     {
       accessorKey: 'price_usd',
-      header: 'Price',
+      header: '価格',
       cell: ({ getValue }) => <span className="font-semibold tabular-nums">{formatPrice(getValue() as number | null, 'USD')}</span>,
       size: 100,
     },
     {
       accessorKey: 'status',
-      header: 'Status',
+      header: 'ステータス',
       cell: ({ getValue }) => <StatusBadge status={getValue() as string} />,
       size: 100,
     },
@@ -113,7 +108,7 @@ export function ListingsPage() {
     },
     {
       accessorKey: 'favorites',
-      header: () => <span className="flex items-center gap-1"><Heart className="h-3 w-3 text-pink-500" />Fav</span>,
+      header: () => <span className="flex items-center gap-1"><Heart className="h-3 w-3 text-pink-500" />お気に入り</span>,
       cell: ({ getValue }) => {
         const v = getValue() as number
         return <span className={`tabular-nums ${v > 0 ? 'text-pink-600 font-medium' : 'text-muted-foreground'}`}>{v ?? '-'}</span>
@@ -122,7 +117,7 @@ export function ListingsPage() {
     },
     {
       accessorKey: 'sales',
-      header: () => <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-emerald-500" />Sales</span>,
+      header: () => <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-emerald-500" />販売数</span>,
       cell: ({ getValue }) => {
         const v = getValue() as number
         return <span className={`tabular-nums ${v > 0 ? 'text-emerald-600 font-bold' : 'text-muted-foreground'}`}>{v ?? '-'}</span>
@@ -131,7 +126,7 @@ export function ListingsPage() {
     },
     {
       accessorKey: 'updated_at',
-      header: 'Updated',
+      header: '更新日',
       cell: ({ getValue }) => <span className="text-xs text-muted-foreground tabular-nums">{formatDate(getValue() as string)}</span>,
       size: 100,
     },
@@ -155,47 +150,58 @@ export function ListingsPage() {
     return s.desc ? <ArrowDown className="h-3 w-3 ml-1" /> : <ArrowUp className="h-3 w-3 ml-1" />
   }
 
+  // プラットフォームタブ
+  const platformTabs = [
+    { value: '', label: 'すべて' },
+    { value: 'ebay', label: 'eBay' },
+    { value: 'base', label: 'BASE' },
+  ]
+
+  const filters: FilterOption[] = [
+    {
+      id: 'status',
+      label: 'ステータス',
+      value: status,
+      options: [
+        { value: ' ', label: 'すべて' },
+        { value: 'active', label: '出品中' },
+        { value: 'draft', label: '下書き' },
+        { value: 'ended', label: '終了' },
+      ],
+      onChange: (v) => updateParams({ status: v.trim(), offset: '' }),
+    },
+  ]
+
+  const activeFilters: { label: string; onRemove: () => void }[] = []
+  if (status) activeFilters.push({ label: `ステータス: ${status}`, onRemove: () => updateParams({ status: '' }) })
+
   return (
     <div className="space-y-5">
-      {/* フィルター */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">Filter:</span>
-        <Select value={platform} onValueChange={(v) => updateParams({ platform: v.trim(), offset: '' })}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Platform" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="ebay">eBay</SelectItem>
-            <SelectItem value="base">BASE</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={status} onValueChange={(v) => updateParams({ status: v.trim(), offset: '' })}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="ended">Ended</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="検索..."
-            value={localSearch}
-            onChange={(e) => {
-              setLocalSearch(e.target.value)
-              updateParams({ search: e.target.value, offset: '' })
-            }}
-            className="h-9 w-[200px] pl-8"
-          />
-        </div>
+      {/* プラットフォームタブ */}
+      <div className="flex items-center gap-1 rounded-lg border p-1 w-fit">
+        {platformTabs.map((tab) => (
+          <Button
+            key={tab.value}
+            variant={platform === tab.value ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 px-3 text-xs"
+            onClick={() => updateParams({ platform: tab.value, offset: '' })}
+          >
+            {tab.label}
+          </Button>
+        ))}
       </div>
+
+      {/* フィルター */}
+      <FilterBar
+        filters={filters}
+        searchValue={localSearch}
+        onSearchChange={(v) => {
+          setLocalSearch(v)
+          updateParams({ search: v, offset: '' })
+        }}
+        activeFilters={activeFilters}
+      />
 
       {/* テーブル */}
       {loading ? (
@@ -232,12 +238,12 @@ export function ListingsPage() {
               <TableBody>
                 {table.getRowModel().rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={columns.length} className="text-center py-12">
-                      <div className="flex flex-col items-center text-muted-foreground">
-                        <List className="h-8 w-8 mb-2 opacity-30" />
-                        <p className="text-sm font-medium">リスティングがありません</p>
-                        <p className="text-xs mt-1">商品詳細ページから出品を開始しましょう</p>
-                      </div>
+                    <TableCell colSpan={columns.length} className="p-0">
+                      <EmptyState
+                        icon={ShoppingCart}
+                        title="リスティングがありません"
+                        description="商品詳細ページから出品を開始しましょう"
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

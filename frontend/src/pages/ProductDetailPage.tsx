@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
+
 import { Slider } from '@/components/ui/slider'
 import {
   Dialog,
@@ -50,6 +50,9 @@ import {
 } from '@/components/ui/select'
 import type { ProfitCalc, SnsPlatform } from '@/types'
 
+// セクションタブ
+type Section = 'info' | 'ai' | 'profit' | 'listing' | 'sns'
+
 export function ProductDetailPage() {
   const { id } = useParams<{ id: string }>()
   const productId = Number(id)
@@ -57,6 +60,8 @@ export function ProductDetailPage() {
     () => getProductDetail(productId),
     [productId]
   )
+
+  const [activeSection, setActiveSection] = useState<Section>('info')
 
   const [titleEn, setTitleEn] = useState('')
   const [descEn, setDescEn] = useState('')
@@ -194,6 +199,17 @@ export function ProductDetailPage() {
   const stepAi = !!titleEn && !!descEn
   const stepListed = listings.length > 0
 
+  // 出品準備度スコア
+  const readinessItems = [
+    { label: 'BANチェック通過', done: stepBan && stepBanPassed },
+    { label: '英語タイトル', done: !!titleEn },
+    { label: '英語説明文', done: !!descEn },
+    { label: '出品済み', done: stepListed },
+  ]
+  const readinessScore = readinessItems.filter(i => i.done).length
+  const readinessMax = readinessItems.length
+  const readinessPct = (readinessScore / readinessMax) * 100
+
   async function handleGenerateEn() {
     setGenLoading(true)
     try {
@@ -280,13 +296,56 @@ export function ProductDetailPage() {
     finally { setListingBase(false) }
   }
 
+  const sections: { key: Section; label: string }[] = [
+    { key: 'info', label: '基本情報' },
+    { key: 'ai', label: 'AI生成' },
+    { key: 'profit', label: '利益シミュレーション' },
+    { key: 'listing', label: '出品' },
+    { key: 'sns', label: 'SNS' },
+  ]
+
   return (
     <div className="space-y-6 pb-20">
       <Link to="/products" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group">
         <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" /> 商品一覧に戻る
       </Link>
 
-      {/* 出品ワークフロー ステップ */}
+      {/* 出品準備度プログレスバー */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">出品準備度</span>
+                <span className="text-sm font-bold tabular-nums">{readinessScore}/{readinessMax}</span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    readinessPct === 100 ? 'bg-emerald-500' : readinessPct >= 50 ? 'bg-primary' : 'bg-amber-500'
+                  }`}
+                  style={{ width: `${readinessPct}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {readinessItems.map((item, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md ${
+                    item.done ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {item.done ? <CheckCircle className="h-3 w-3" /> : <span className="h-3 w-3 rounded-full border border-current" />}
+                  <span className="hidden sm:inline">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ワークフロー ステップ */}
       <div className="flex items-center gap-2">
         <StepBadge label="1. BANチェック" done={stepBan && stepBanPassed} error={stepBan && !stepBanPassed} loading={banLoading} />
         <div className="h-px w-6 bg-border" />
@@ -295,74 +354,495 @@ export function ProductDetailPage() {
         <StepBadge label="3. 出品" done={stepListed} />
       </div>
 
-      {/* 商品情報 */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardContent className="p-0">
-            {images.length > 0 ? (
-              <div className="grid grid-cols-2 gap-1 p-2">
-                {images.map((url, i) => (
-                  <img
-                    key={i}
-                    src={url}
-                    alt={`${product.name_ja} ${i + 1}`}
-                    className="rounded-lg object-cover w-full aspect-square cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => setLightboxImg(url)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center bg-muted/30 text-muted-foreground">
-                <ShoppingBag className="h-12 w-12 opacity-20" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* セクションタブ */}
+      <div className="flex gap-1 rounded-lg border p-1 overflow-x-auto">
+        {sections.map((s) => (
+          <Button
+            key={s.key}
+            variant={activeSection === s.key ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 px-3 text-xs whitespace-nowrap"
+            onClick={() => setActiveSection(s.key)}
+          >
+            {s.label}
+          </Button>
+        ))}
+      </div>
 
+      {/* === 基本情報セクション === */}
+      {activeSection === 'info' && (
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                {images.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-1 p-2">
+                    {images.map((url, i) => (
+                      <img
+                        key={i}
+                        src={url}
+                        alt={`${product.name_ja} ${i + 1}`}
+                        className="rounded-lg object-cover w-full aspect-square cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setLightboxImg(url)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex h-64 items-center justify-center bg-muted/30 text-muted-foreground">
+                    <ShoppingBag className="h-12 w-12 opacity-20" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-lg leading-tight">{product.name_ja}</CardTitle>
+                  <StockBadge status={product.stock_status} />
+                </div>
+                {product.product_url && (
+                  <a
+                    href={product.product_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    NETSEA商品ページ
+                  </a>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-lg bg-muted/50 p-2.5">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">カテゴリ</p>
+                    <p className="font-medium">{product.category || '-'}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-2.5">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">重量</p>
+                    <p className="font-medium">{product.weight_g != null ? `${product.weight_g}g` : '不明'}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-2.5">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">卸値</p>
+                    <p className="font-bold">{formatPrice(product.wholesale_price_jpy)}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-2.5">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">参考価格</p>
+                    <p className="font-medium">{formatPrice(product.reference_price_jpy)}</p>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-medium">{product.supplier}</span>
+                  {product.shop_name && <span> / {product.shop_name}</span>}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* BANチェック結果 */}
+          {banLoading ? (
+            <Card className="border-muted">
+              <CardContent className="flex items-center gap-3 p-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">BANチェック中...</p>
+              </CardContent>
+            </Card>
+          ) : banError ? (
+            <Card className="border-red-200 dark:border-red-800">
+              <CardContent className="flex items-start gap-3 p-4">
+                <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-sm text-red-700 dark:text-red-400">BANチェックエラー</p>
+                  <p className="text-sm text-muted-foreground mt-1">{banError}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : banResult && (
+            <Card className={banResult.passed
+              ? 'border-emerald-200 dark:border-emerald-800'
+              : 'border-red-200 dark:border-red-800'
+            }>
+              <CardContent className="flex items-start gap-3 p-4">
+                {banResult.passed ? (
+                  <CheckCircle className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                )}
+                <div>
+                  <p className={`font-semibold text-sm ${banResult.passed ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                    {banResult.passed ? 'BANチェック通過' : 'BANリスク検出'}
+                  </p>
+                  {banResult.issues.length > 0 && (
+                    <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">
+                      {banResult.issues.map((issue, i) => (
+                        <li key={i} className="flex items-center gap-1.5">
+                          <span className="h-1 w-1 rounded-full bg-current" />
+                          {issue}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {banResult.excluded_countries.length > 0 && (
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <Globe className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">除外国:</span>
+                      {banResult.excluded_countries.map(c => (
+                        <Badge key={c} variant="outline" className="text-xs px-1.5 py-0">{c}</Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* === AI生成セクション === */}
+      {activeSection === 'ai' && (
+        <>
+          {/* 英語リスティング */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                English Listing (eBay)
+              </CardTitle>
+              <Button variant="outline" size="sm" onClick={handleGenerateEn} disabled={genLoading}>
+                <Sparkles className="mr-1 h-3 w-3" />
+                {genLoading ? 'AI生成中...' : 'AI生成'}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title (80)</Label>
+                <Input value={titleEn} onChange={(e) => setTitleEn(e.target.value)} maxLength={80} placeholder="English title..." />
+                <div className="h-1 rounded-full bg-muted mt-1 overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${titleEn.length > 70 ? 'bg-amber-500' : 'bg-primary/30'}`} style={{ width: `${(titleEn.length / 80) * 100}%` }} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Description</Label>
+                <Textarea value={descEn} onChange={(e) => setDescEn(e.target.value)} rows={5} placeholder="Product description..." className="resize-none" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">SEO Tags</Label>
+                <Input value={tagsEn} onChange={(e) => setTagsEn(e.target.value)} placeholder="tenugui, japanese, cotton..." />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 日本語リスティング */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                日本語リスティング (BASE)
+              </CardTitle>
+              <Button variant="outline" size="sm" onClick={handleGenerateJa} disabled={genJaLoading}>
+                <Sparkles className="mr-1 h-3 w-3" />
+                {genJaLoading ? 'AI生成中...' : 'AI生成'}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title (50)</Label>
+                <Input value={titleJa} onChange={(e) => setTitleJa(e.target.value)} maxLength={50} placeholder="日本語タイトル..." />
+                <div className="h-1 rounded-full bg-muted mt-1 overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${titleJa.length > 40 ? 'bg-amber-500' : 'bg-primary/30'}`} style={{ width: `${(titleJa.length / 50) * 100}%` }} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Description</Label>
+                <Textarea value={descJa} onChange={(e) => setDescJa(e.target.value)} rows={5} placeholder="商品説明..." className="resize-none" />
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* === 利益シミュレーションセクション === */}
+      {activeSection === 'profit' && (
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="text-lg leading-tight">{product.name_ja}</CardTitle>
-              <StockBadge status={product.stock_status} />
-            </div>
-            {product.product_url && (
-              <a
-                href={product.product_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                NETSEA商品ページ
-              </a>
-            )}
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              利益シミュレーション
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-lg bg-muted/50 p-2.5">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Category</p>
-                <p className="font-medium">{product.category || '-'}</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  販売価格: ${simPrice}
+                </Label>
+                <Slider
+                  value={[simPrice]}
+                  onValueChange={([v]) => {
+                    setSimPrice(v)
+                    runSimulation(v, simPlatform)
+                  }}
+                  min={5}
+                  max={100}
+                  step={1}
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>$5</span>
+                  <span>$100</span>
+                </div>
               </div>
-              <div className="rounded-lg bg-muted/50 p-2.5">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Weight</p>
-                <p className="font-medium">{product.weight_g != null ? `${product.weight_g}g` : '不明'}</p>
-              </div>
-              <div className="rounded-lg bg-muted/50 p-2.5">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">卸値</p>
-                <p className="font-bold">{formatPrice(product.wholesale_price_jpy)}</p>
-              </div>
-              <div className="rounded-lg bg-muted/50 p-2.5">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">参考価格</p>
-                <p className="font-medium">{formatPrice(product.reference_price_jpy)}</p>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">プラットフォーム</Label>
+                <Select value={simPlatform} onValueChange={(v) => { setSimPlatform(v); runSimulation(simPrice, v) }}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ebay">eBay</SelectItem>
+                    <SelectItem value="base">BASE</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">{product.supplier}</span>
-              {product.shop_name && <span> / {product.shop_name}</span>}
-            </div>
+
+            {simLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <Loader2 className="h-4 w-4 animate-spin" /> 計算中...
+              </div>
+            ) : simResult ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">卸値(USD)</p>
+                  <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.wholesale_usd, 'USD')}</p>
+                </div>
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">送料</p>
+                  <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.shipping_usd, 'USD')}</p>
+                </div>
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">手数料</p>
+                  <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.platform_fees_usd, 'USD')}</p>
+                </div>
+                <div className={`rounded-lg border-2 p-3 text-center ${
+                  simResult.profit_margin >= 0.25
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950'
+                    : simResult.profitable
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-950'
+                      : 'border-red-500 bg-red-50 dark:bg-red-950'
+                }`}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">利益</p>
+                  <p className={`text-lg font-bold tabular-nums ${
+                    simResult.profitable ? 'text-emerald-600' : 'text-red-600'
+                  }`}>
+                    {formatPrice(simResult.profit_usd, 'USD')}
+                  </p>
+                  <p className={`text-xs font-semibold ${
+                    simResult.profit_margin >= 0.25 ? 'text-emerald-600'
+                    : simResult.profitable ? 'text-amber-600'
+                    : 'text-red-600'
+                  }`}>
+                    {formatMargin(simResult.profit_margin)}
+                    {simResult.profit_margin < 0.25 && simResult.profitable && ' (25%未満)'}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {profit_info && profit_info.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                  固定価格テーブル（$15/$20/$25/$30）
+                </summary>
+                <Table className="mt-2">
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead>販売価格</TableHead>
+                      <TableHead>卸値(USD)</TableHead>
+                      <TableHead>送料</TableHead>
+                      <TableHead>手数料</TableHead>
+                      <TableHead>利益</TableHead>
+                      <TableHead>利益率</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {profit_info.map((p: ProfitCalc, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-semibold">{formatPrice(p.sale_usd, 'USD')}</TableCell>
+                        <TableCell>{formatPrice(p.wholesale_usd, 'USD')}</TableCell>
+                        <TableCell>{formatPrice(p.shipping_usd, 'USD')}</TableCell>
+                        <TableCell>{formatPrice(p.platform_fees_usd, 'USD')}</TableCell>
+                        <TableCell className={`font-bold ${p.profitable ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {formatPrice(p.profit_usd, 'USD')}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`text-xs font-semibold ${p.profitable ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {formatMargin(p.profit_margin)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </details>
+            )}
           </CardContent>
         </Card>
-      </div>
+      )}
+
+      {/* === 出品セクション === */}
+      {activeSection === 'listing' && (
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <PlatformBadge platform="ebay" />
+                  eBay出品
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Price (USD)</Label>
+                  <Input type="number" step="0.01" value={priceUsd} onChange={(e) => setPriceUsd(e.target.value)} />
+                </div>
+                <Button onClick={handleListEbay} disabled={listingEbay} className="w-full">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {listingEbay ? '出品中...' : 'eBayに出品'}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <PlatformBadge platform="base" />
+                  BASE出品
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Price (JPY)</Label>
+                  <Input type="number" value={priceJpy} onChange={(e) => setPriceJpy(e.target.value)} />
+                </div>
+                <Button onClick={handleListBase} disabled={listingBase} className="w-full">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {listingBase ? '出品中...' : 'BASEに出品'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 関連リスティング */}
+          {listings.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                  関連リスティング
+                  <Badge variant="outline" className="ml-auto text-xs">{listings.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead>プラットフォーム</TableHead>
+                      <TableHead>タイトル</TableHead>
+                      <TableHead>価格</TableHead>
+                      <TableHead>ステータス</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {listings.map((l) => (
+                      <TableRow key={l.id} className="hover:bg-muted/30">
+                        <TableCell><PlatformBadge platform={l.platform} /></TableCell>
+                        <TableCell className="max-w-xs truncate text-sm">{l.title_en || '-'}</TableCell>
+                        <TableCell className="font-medium">{formatPrice(l.price_usd, 'USD')}</TableCell>
+                        <TableCell><StatusBadge status={l.status} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* === SNSセクション === */}
+      {activeSection === 'sns' && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Share2 className="h-4 w-4 text-muted-foreground" />
+              SNS投稿
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={handleSnsGenerate} disabled={snsGenLoading}>
+              <Sparkles className="mr-1 h-3 w-3" />
+              {snsGenLoading ? 'AI生成中...' : 'AI生成'}
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">プラットフォーム</Label>
+              <Select value={snsPlatform} onValueChange={(v) => setSnsPlatform(v as SnsPlatform)}>
+                <SelectTrigger className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="twitter">
+                    <span className="inline-flex items-center gap-1.5">
+                      <XIcon className="h-3.5 w-3.5" /> X (Twitter)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="instagram">
+                    <span className="inline-flex items-center gap-1.5">
+                      <InstagramIcon className="h-3.5 w-3.5" /> Instagram
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="threads">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ThreadsIcon className="h-3.5 w-3.5" /> Threads
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">本文</Label>
+              <Textarea
+                value={snsBody} onChange={(e) => setSnsBody(e.target.value)}
+                rows={4} maxLength={snsCharLimit}
+                placeholder="投稿本文を入力..." className="resize-none"
+              />
+              <div className="flex items-center justify-between mt-1">
+                <div className="flex-1 mr-4">
+                  <div className="h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        snsCharRatio > 0.9 ? 'bg-red-500' : snsCharRatio > 0.7 ? 'bg-amber-500' : 'bg-primary/30'
+                      }`}
+                      style={{ width: `${Math.min(snsCharRatio * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <span className={`text-xs tabular-nums ${snsCharRatio > 0.9 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  {snsBody.length}/{snsCharLimit}
+                </span>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">ハッシュタグ</Label>
+              <Input value={snsHashtags} onChange={(e) => setSnsHashtags(e.target.value)} placeholder="#japanese #tenugui" className="h-10" />
+            </div>
+            <Button onClick={handleSnsPost} disabled={snsPosting}>
+              <Send className="mr-1.5 h-3.5 w-3.5" />
+              {snsPosting ? '投稿中...' : '投稿する'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 画像ライトボックス */}
       <Dialog open={!!lightboxImg} onOpenChange={(open) => !open && setLightboxImg(null)}>
@@ -373,428 +853,24 @@ export function ProductDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BANチェック結果 */}
-      {banLoading ? (
-        <Card className="border-muted">
-          <CardContent className="flex items-center gap-3 p-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">BANチェック中...</p>
-          </CardContent>
-        </Card>
-      ) : banError ? (
-        <Card className="border-red-200 dark:border-red-800">
-          <CardContent className="flex items-start gap-3 p-4">
-            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold text-sm text-red-700 dark:text-red-400">BANチェックエラー</p>
-              <p className="text-sm text-muted-foreground mt-1">{banError}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : banResult && (
-        <Card className={banResult.passed
-          ? 'border-emerald-200 dark:border-emerald-800'
-          : 'border-red-200 dark:border-red-800'
-        }>
-          <CardContent className="flex items-start gap-3 p-4">
-            {banResult.passed ? (
-              <CheckCircle className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-            )}
-            <div>
-              <p className={`font-semibold text-sm ${banResult.passed ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-                {banResult.passed ? 'BANチェック通過' : 'BANリスク検出'}
-              </p>
-              {banResult.issues.length > 0 && (
-                <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">
-                  {banResult.issues.map((issue, i) => (
-                    <li key={i} className="flex items-center gap-1.5">
-                      <span className="h-1 w-1 rounded-full bg-current" />
-                      {issue}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {banResult.excluded_countries.length > 0 && (
-                <div className="mt-2 flex items-center gap-1.5">
-                  <Globe className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">除外国:</span>
-                  {banResult.excluded_countries.map(c => (
-                    <Badge key={c} variant="outline" className="text-xs px-1.5 py-0">{c}</Badge>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 英語リスティング */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-4 w-4 text-muted-foreground" />
-            English Listing (eBay)
-          </CardTitle>
-          <Button
-            variant="outline" size="sm" onClick={handleGenerateEn} disabled={genLoading}
-          >
-            <Sparkles className="mr-1 h-3 w-3" />
-            {genLoading ? 'AI生成中...' : 'AI生成'}
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title (80)</Label>
-            <Input value={titleEn} onChange={(e) => setTitleEn(e.target.value)} maxLength={80} placeholder="English title..." />
-            <div className="h-1 rounded-full bg-muted mt-1 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${titleEn.length > 70 ? 'bg-amber-500' : 'bg-foreground/20'}`} style={{ width: `${(titleEn.length / 80) * 100}%` }} />
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Description</Label>
-            <Textarea value={descEn} onChange={(e) => setDescEn(e.target.value)} rows={5} placeholder="Product description..." className="resize-none" />
-          </div>
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">SEO Tags</Label>
-            <Input value={tagsEn} onChange={(e) => setTagsEn(e.target.value)} placeholder="tenugui, japanese, cotton..." />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 日本語リスティング */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-            日本語リスティング (BASE)
-          </CardTitle>
-          <Button
-            variant="outline" size="sm" onClick={handleGenerateJa} disabled={genJaLoading}
-          >
-            <Sparkles className="mr-1 h-3 w-3" />
-            {genJaLoading ? 'AI生成中...' : 'AI生成'}
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title (50)</Label>
-            <Input value={titleJa} onChange={(e) => setTitleJa(e.target.value)} maxLength={50} placeholder="日本語タイトル..." />
-            <div className="h-1 rounded-full bg-muted mt-1 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${titleJa.length > 40 ? 'bg-amber-500' : 'bg-foreground/20'}`} style={{ width: `${(titleJa.length / 50) * 100}%` }} />
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Description</Label>
-            <Textarea value={descJa} onChange={(e) => setDescJa(e.target.value)} rows={5} placeholder="商品説明..." className="resize-none" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      {/* 利益シミュレーション（インタラクティブ） */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-            利益シミュレーション
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                販売価格: ${simPrice}
-              </Label>
-              <Slider
-                value={[simPrice]}
-                onValueChange={([v]) => {
-                  setSimPrice(v)
-                  runSimulation(v, simPlatform)
-                }}
-                min={5}
-                max={100}
-                step={1}
-              />
-              <div className="flex justify-between text-[10px] text-muted-foreground">
-                <span>$5</span>
-                <span>$100</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">プラットフォーム</Label>
-              <Select value={simPlatform} onValueChange={(v) => { setSimPlatform(v); runSimulation(simPrice, v) }}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ebay">eBay</SelectItem>
-                  <SelectItem value="base">BASE</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {simLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-              <Loader2 className="h-4 w-4 animate-spin" /> 計算中...
-            </div>
-          ) : simResult ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-lg border p-3 text-center">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">卸値(USD)</p>
-                <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.wholesale_usd, 'USD')}</p>
-              </div>
-              <div className="rounded-lg border p-3 text-center">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">送料</p>
-                <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.shipping_usd, 'USD')}</p>
-              </div>
-              <div className="rounded-lg border p-3 text-center">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">手数料</p>
-                <p className="text-lg font-bold tabular-nums">{formatPrice(simResult.platform_fees_usd, 'USD')}</p>
-              </div>
-              <div className={`rounded-lg border-2 p-3 text-center ${
-                simResult.profit_margin >= 0.25
-                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950'
-                  : simResult.profitable
-                    ? 'border-amber-500 bg-amber-50 dark:bg-amber-950'
-                    : 'border-red-500 bg-red-50 dark:bg-red-950'
-              }`}>
-                <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1">利益</p>
-                <p className={`text-lg font-bold tabular-nums ${
-                  simResult.profitable ? 'text-emerald-600' : 'text-red-600'
-                }`}>
-                  {formatPrice(simResult.profit_usd, 'USD')}
-                </p>
-                <p className={`text-xs font-semibold ${
-                  simResult.profit_margin >= 0.25 ? 'text-emerald-600'
-                  : simResult.profitable ? 'text-amber-600'
-                  : 'text-red-600'
-                }`}>
-                  {formatMargin(simResult.profit_margin)}
-                  {simResult.profit_margin < 0.25 && simResult.profitable && ' (25%未満)'}
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {/* 固定価格テーブル（参考） */}
-          {profit_info && profit_info.length > 0 && (
-            <details className="mt-2">
-              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                固定価格テーブル（$15/$20/$25/$30）
-              </summary>
-              <Table className="mt-2">
-                <TableHeader>
-                  <TableRow className="bg-muted/30">
-                    <TableHead>販売価格</TableHead>
-                    <TableHead>卸値(USD)</TableHead>
-                    <TableHead>送料</TableHead>
-                    <TableHead>手数料</TableHead>
-                    <TableHead>利益</TableHead>
-                    <TableHead>利益率</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profit_info.map((p: ProfitCalc, i: number) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-semibold">{formatPrice(p.sale_usd, 'USD')}</TableCell>
-                      <TableCell>{formatPrice(p.wholesale_usd, 'USD')}</TableCell>
-                      <TableCell>{formatPrice(p.shipping_usd, 'USD')}</TableCell>
-                      <TableCell>{formatPrice(p.platform_fees_usd, 'USD')}</TableCell>
-                      <TableCell className={`font-bold ${p.profitable ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {formatPrice(p.profit_usd, 'USD')}
-                      </TableCell>
-                      <TableCell>
-                        <span className={`text-xs font-semibold ${p.profitable ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {formatMargin(p.profit_margin)}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </details>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* プラットフォーム出品 */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <PlatformBadge platform="ebay" />
-              出品
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Price (USD)</Label>
-              <Input type="number" step="0.01" value={priceUsd} onChange={(e) => setPriceUsd(e.target.value)} />
-            </div>
-            <Button onClick={handleListEbay} disabled={listingEbay} className="w-full">
-              <ExternalLink className="mr-2 h-4 w-4" />
-              {listingEbay ? '出品中...' : 'eBayに出品'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <PlatformBadge platform="base" />
-              出品
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Price (JPY)</Label>
-              <Input type="number" value={priceJpy} onChange={(e) => setPriceJpy(e.target.value)} />
-            </div>
-            <Button onClick={handleListBase} disabled={listingBase} className="w-full">
-              <ExternalLink className="mr-2 h-4 w-4" />
-              {listingBase ? '出品中...' : 'BASEに出品'}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 関連リスティング */}
-      {listings.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ExternalLink className="h-4 w-4 text-muted-foreground" />
-              関連リスティング
-              <Badge variant="outline" className="ml-auto text-xs">{listings.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30">
-                  <TableHead>Platform</TableHead>
-                  <TableHead>タイトル</TableHead>
-                  <TableHead>価格</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {listings.map((l) => (
-                  <TableRow key={l.id} className="hover:bg-muted/30">
-                    <TableCell><PlatformBadge platform={l.platform} /></TableCell>
-                    <TableCell className="max-w-xs truncate text-sm">{l.title_en || '-'}</TableCell>
-                    <TableCell className="font-medium">{formatPrice(l.price_usd, 'USD')}</TableCell>
-                    <TableCell><StatusBadge status={l.status} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* SNS投稿 */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Share2 className="h-4 w-4 text-muted-foreground" />
-            SNS投稿
-          </CardTitle>
-          <Button
-            variant="outline" size="sm" onClick={handleSnsGenerate} disabled={snsGenLoading}
-          >
-            <Sparkles className="mr-1 h-3 w-3" />
-            {snsGenLoading ? 'AI生成中...' : 'AI生成'}
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Platform</Label>
-            <Select value={snsPlatform} onValueChange={(v) => setSnsPlatform(v as SnsPlatform)}>
-              <SelectTrigger className="h-10">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="twitter">
-                  <span className="inline-flex items-center gap-1.5">
-                    <XIcon className="h-3.5 w-3.5" />
-                    X (Twitter)
-                  </span>
-                </SelectItem>
-                <SelectItem value="instagram">
-                  <span className="inline-flex items-center gap-1.5">
-                    <InstagramIcon className="h-3.5 w-3.5" />
-                    Instagram
-                  </span>
-                </SelectItem>
-                <SelectItem value="threads">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ThreadsIcon className="h-3.5 w-3.5" />
-                    Threads
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Body</Label>
-            <Textarea
-              value={snsBody} onChange={(e) => setSnsBody(e.target.value)}
-              rows={4} maxLength={snsCharLimit}
-              placeholder="投稿本文を入力..." className="resize-none"
-            />
-            <div className="flex items-center justify-between mt-1">
-              <div className="flex-1 mr-4">
-                <div className="h-1 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      snsCharRatio > 0.9 ? 'bg-red-500' : snsCharRatio > 0.7 ? 'bg-amber-500' : 'bg-foreground/20'
-                    }`}
-                    style={{ width: `${Math.min(snsCharRatio * 100, 100)}%` }}
-                  />
-                </div>
-              </div>
-              <span className={`text-xs tabular-nums ${snsCharRatio > 0.9 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                {snsBody.length}/{snsCharLimit}
-              </span>
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Hashtags</Label>
-            <Input value={snsHashtags} onChange={(e) => setSnsHashtags(e.target.value)} placeholder="#japanese #tenugui" className="h-10" />
-          </div>
-          <Button onClick={handleSnsPost} disabled={snsPosting}>
-            <Send className="mr-1.5 h-3.5 w-3.5" />
-            {snsPosting ? '投稿中...' : '投稿する'}
-          </Button>
-        </CardContent>
-      </Card>
-
       {/* スティッキー保存バー */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto max-w-7xl flex items-center justify-between px-4 py-3 md:px-6 lg:px-8">
-          <div className="text-sm text-muted-foreground">
-            {isDirty ? (
+      {isDirty && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 animate-fade-in">
+          <div className="mx-auto max-w-7xl flex items-center justify-between px-4 py-3 md:px-6 lg:px-8">
+            <div className="text-sm text-muted-foreground">
               <span className="text-amber-600 font-medium">未保存の変更があります</span>
-            ) : (
-              <span>変更なし</span>
-            )}
+            </div>
+            <Button onClick={handleSave} disabled={saving}>
+              <Save className="mr-1.5 h-4 w-4" />
+              {saving ? '保存中...' : '変更を保存'}
+            </Button>
           </div>
-          <Button onClick={handleSave} disabled={saving || !isDirty}>
-            <Save className="mr-1.5 h-4 w-4" />
-            {saving ? '保存中...' : '変更を保存'}
-          </Button>
         </div>
-      </div>
+      )}
     </div>
   )
 }
 
-/** ワークフローステップバッジ */
 function StepBadge({ label, done, error, loading }: { label: string; done: boolean; error?: boolean; loading?: boolean }) {
   if (loading) {
     return (

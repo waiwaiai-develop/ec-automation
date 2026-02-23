@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Trash2, Upload, ExternalLink, Package, CheckSquare, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react'
+import { Trash2, Upload, ExternalLink, Package, CheckSquare, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,13 +16,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -57,7 +50,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { StockBadge, DSFlagBadge, PlatformBadge } from '@/components/shared/Badges'
+import { FilterBar, type FilterOption } from '@/components/shared/FilterBar'
 import { Pagination } from '@/components/shared/Pagination'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { useApi } from '@/hooks/use-api'
 import { getProducts, importNetseaUrl, bulkDelete, bulkSetFlags, bulkList } from '@/lib/api'
@@ -69,7 +64,6 @@ const PAGE_SIZE = 50
 export function ProductsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // URLからフィルター状態を復元
   const category = searchParams.get('category') || ''
   const stockStatus = searchParams.get('stock_status') || ''
   const dsOnly = searchParams.get('ds_only') || ''
@@ -82,11 +76,9 @@ export function ProductsPage() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [localSearch, setLocalSearch] = useState(searchQuery)
 
-  // 一括出品ダイアログ
   const [bulkListDialog, setBulkListDialog] = useState<{ platform: string } | null>(null)
   const [bulkListPrice, setBulkListPrice] = useState('25.00')
 
-  // URLパラメータ更新ヘルパー
   const updateParams = useCallback((updates: Record<string, string>) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -111,7 +103,6 @@ export function ProductsPage() {
     { debounceMs: searchQuery !== localSearch ? 300 : 0 }
   )
 
-  // 準備状況の計算
   function getReadinessScore(p: Product): { score: number; max: number; items: { label: string; done: boolean }[] } {
     const items = [
       { label: '英語タイトル', done: !!p.name_en },
@@ -128,12 +119,14 @@ export function ProductsPage() {
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+          aria-label="全選択"
         />
       ),
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(v) => row.toggleSelected(!!v)}
+          aria-label="行を選択"
         />
       ),
       size: 40,
@@ -161,7 +154,7 @@ export function ProductsPage() {
       cell: ({ row }) => (
         <Link
           to={`/products/${row.original.id}`}
-          className="font-medium text-sm hover:text-blue-600 hover:underline transition-colors line-clamp-2"
+          className="font-medium text-sm hover:text-primary hover:underline transition-colors line-clamp-2"
         >
           {row.original.name_ja}
         </Link>
@@ -308,7 +301,6 @@ export function ProductsPage() {
     } catch (e: unknown) { toast.error((e as Error).message) }
   }
 
-  // ソートアイコンヘルパー
   function SortIcon({ column }: { column: string }) {
     const s = sorting.find(s => s.id === column)
     if (!s) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />
@@ -316,6 +308,48 @@ export function ProductsPage() {
       ? <ArrowDown className="h-3 w-3 ml-1" />
       : <ArrowUp className="h-3 w-3 ml-1" />
   }
+
+  // FilterBar用フィルター定義
+  const filters: FilterOption[] = [
+    {
+      id: 'category',
+      label: 'カテゴリ',
+      value: category,
+      options: [
+        { value: ' ', label: 'すべて' },
+        ...(data?.categories ?? []).map((c) => ({ value: c, label: c })),
+      ],
+      onChange: (v) => updateParams({ category: v.trim(), offset: '' }),
+    },
+    {
+      id: 'stock_status',
+      label: '在庫状態',
+      value: stockStatus,
+      options: [
+        { value: ' ', label: 'すべて' },
+        { value: 'in_stock', label: '在庫あり' },
+        { value: 'out_of_stock', label: '在庫切れ' },
+        { value: 'limited', label: '残りわずか' },
+      ],
+      onChange: (v) => updateParams({ stock_status: v.trim(), offset: '' }),
+    },
+    {
+      id: 'ds_only',
+      label: 'DS対応',
+      value: dsOnly,
+      options: [
+        { value: ' ', label: 'すべて' },
+        { value: '1', label: 'DS対応のみ' },
+      ],
+      onChange: (v) => updateParams({ ds_only: v.trim(), offset: '' }),
+    },
+  ]
+
+  // アクティブフィルター
+  const activeFilters: { label: string; onRemove: () => void }[] = []
+  if (category) activeFilters.push({ label: `カテゴリ: ${category}`, onRemove: () => updateParams({ category: '' }) })
+  if (stockStatus) activeFilters.push({ label: `在庫: ${stockStatus}`, onRemove: () => updateParams({ stock_status: '' }) })
+  if (dsOnly) activeFilters.push({ label: 'DS対応のみ', onRemove: () => updateParams({ ds_only: '' }) })
 
   return (
     <div className="space-y-5">
@@ -335,6 +369,7 @@ export function ProductsPage() {
               onChange={(e) => setNetseaUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleImport()}
               className="h-10"
+              aria-label="NETSEA URL"
             />
             <Button onClick={handleImport} disabled={importing}>
               <Upload className="mr-2 h-4 w-4" />
@@ -344,71 +379,22 @@ export function ProductsPage() {
         </CardContent>
       </Card>
 
-      {/* フィルター + 検索 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">Filter:</span>
-        <Select
-          value={category}
-          onValueChange={(v) => updateParams({ category: v.trim(), offset: '' })}
-        >
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="カテゴリ" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            {(data?.categories ?? []).map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={stockStatus}
-          onValueChange={(v) => updateParams({ stock_status: v.trim(), offset: '' })}
-        >
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="在庫状態" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="in_stock">在庫あり</SelectItem>
-            <SelectItem value="out_of_stock">在庫切れ</SelectItem>
-            <SelectItem value="limited">残りわずか</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={dsOnly}
-          onValueChange={(v) => updateParams({ ds_only: v.trim(), offset: '' })}
-        >
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="DS対応" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="1">DS対応のみ</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="検索..."
-            value={localSearch}
-            onChange={(e) => {
-              setLocalSearch(e.target.value)
-              updateParams({ search: e.target.value, offset: '' })
-            }}
-            className="h-9 w-[200px] pl-8"
-          />
-        </div>
-      </div>
+      {/* FilterBar */}
+      <FilterBar
+        filters={filters}
+        searchValue={localSearch}
+        onSearchChange={(v) => {
+          setLocalSearch(v)
+          updateParams({ search: v, offset: '' })
+        }}
+        activeFilters={activeFilters}
+      />
 
       {/* 一括操作バー */}
       {selectedIds.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center gap-2 rounded-xl border bg-background/95 backdrop-blur shadow-lg px-4 py-3 animate-fade-in">
           <div className="flex items-center gap-1.5">
-            <CheckSquare className="h-4 w-4" />
+            <CheckSquare className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold">{selectedIds.length}件選択</span>
           </div>
           <div className="h-4 w-px bg-border mx-1" />
@@ -528,12 +514,12 @@ export function ProductsPage() {
               <TableBody>
                 {table.getRowModel().rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={columns.length} className="text-center py-12">
-                      <div className="flex flex-col items-center text-muted-foreground">
-                        <Package className="h-8 w-8 mb-2 opacity-30" />
-                        <p className="text-sm font-medium">商品がありません</p>
-                        <p className="text-xs mt-1">上のフォームからNETSEA URLで商品を登録しましょう</p>
-                      </div>
+                    <TableCell colSpan={columns.length} className="p-0">
+                      <EmptyState
+                        icon={Package}
+                        title="商品がありません"
+                        description="上のフォームからNETSEA URLで商品を登録しましょう"
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

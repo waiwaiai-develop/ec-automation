@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SnsPlatformBadge, SnsStatusBadge, XIcon, InstagramIcon, ThreadsIcon } from '@/components/shared/Badges'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { MonthCalendar } from '@/components/shared/MonthCalendar'
 import { useApi } from '@/hooks/use-api'
 import {
@@ -56,7 +57,6 @@ export function SnsPage() {
   const [filterPlatform, setFilterPlatform] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
-  // ビュー切替
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const now = new Date()
   const [calYear, setCalYear] = useState(now.getFullYear())
@@ -72,7 +72,6 @@ export function SnsPage() {
     [filterPlatform, filterStatus]
   )
 
-  // カレンダー用: 表示月の投稿を取得
   const calDateFrom = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-01`
   const nextMonth = calMonth === 11 ? 0 : calMonth + 1
   const nextYear = calMonth === 11 ? calYear + 1 : calYear
@@ -88,7 +87,6 @@ export function SnsPage() {
     [filterPlatform, calYear, calMonth]
   )
 
-  // 選択日の投稿をフィルタ
   const selectedDayPosts = useMemo<SnsPost[]>(() => {
     if (!selectedDate || !calPostsApi.data) return []
     return calPostsApi.data.posts.filter((p) => {
@@ -192,6 +190,14 @@ export function SnsPage() {
     setSelectedDate(null)
   }
 
+  // プラットフォームタブ
+  const platformTabs = [
+    { value: 'all', label: 'すべて' },
+    { value: 'twitter', label: 'X' },
+    { value: 'instagram', label: 'Instagram' },
+    { value: 'threads', label: 'Threads' },
+  ]
+
   return (
     <div className="space-y-8">
       {/* 新規SNS投稿カード */}
@@ -205,7 +211,7 @@ export function SnsPage() {
         <CardContent className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Platform</Label>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">プラットフォーム</Label>
               <Select value={platform} onValueChange={(v) => setPlatform(v as SnsPlatform)}>
                 <SelectTrigger className="h-10">
                   <SelectValue />
@@ -233,7 +239,7 @@ export function SnsPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Product</Label>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">商品</Label>
               <Select value={productId} onValueChange={setProductId}>
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="商品を選択..." />
@@ -251,7 +257,7 @@ export function SnsPage() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Body</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">本文</Label>
             <Textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
@@ -265,7 +271,7 @@ export function SnsPage() {
                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-300 ${
-                      charRatio > 0.9 ? 'bg-red-500' : charRatio > 0.7 ? 'bg-amber-500' : 'bg-foreground/20'
+                      charRatio > 0.9 ? 'bg-red-500' : charRatio > 0.7 ? 'bg-amber-500' : 'bg-primary/30'
                     }`}
                     style={{ width: `${Math.min(charRatio * 100, 100)}%` }}
                   />
@@ -283,7 +289,7 @@ export function SnsPage() {
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 <Hash className="h-3 w-3" />
-                Hashtags
+                ハッシュタグ
               </Label>
               <Input
                 value={hashtags}
@@ -295,7 +301,7 @@ export function SnsPage() {
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 <Calendar className="h-3 w-3" />
-                Schedule
+                予約投稿
               </Label>
               <Input
                 type="datetime-local"
@@ -312,54 +318,44 @@ export function SnsPage() {
               size="sm"
               onClick={handleGenerate}
               disabled={generating || !productId || productId === 'none'}
+              className="gap-1.5"
             >
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5" />
               {generating ? 'AI生成中...' : 'AI生成'}
             </Button>
             <div className="flex-1" />
             <Button variant="outline" size="sm" onClick={handleSave} disabled={submitting}>
               {submitting ? '保存中...' : '下書き保存'}
             </Button>
-            <Button size="sm" onClick={handlePost} disabled={submitting}>
-              <Send className="mr-1.5 h-3.5 w-3.5" />
+            <Button size="sm" onClick={handlePost} disabled={submitting} className="gap-1.5">
+              <Send className="h-3.5 w-3.5" />
               {submitting ? '投稿中...' : '今すぐ投稿'}
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* フィルター */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">Filter:</span>
-        <Select value={filterPlatform} onValueChange={setFilterPlatform}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Platform" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Platforms</SelectItem>
-            <SelectItem value="twitter">
-              <span className="inline-flex items-center gap-1.5">
-                <XIcon className="h-3 w-3" /> X
-              </span>
-            </SelectItem>
-            <SelectItem value="instagram">
-              <span className="inline-flex items-center gap-1.5">
-                <InstagramIcon className="h-3 w-3" /> Instagram
-              </span>
-            </SelectItem>
-            <SelectItem value="threads">
-              <span className="inline-flex items-center gap-1.5">
-                <ThreadsIcon className="h-3 w-3" /> Threads
-              </span>
-            </SelectItem>
-          </SelectContent>
-        </Select>
+      {/* プラットフォームフィルタータブ + ステータス */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-lg border p-1">
+          {platformTabs.map((tab) => (
+            <Button
+              key={tab.value}
+              variant={filterPlatform === tab.value ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => setFilterPlatform(tab.value)}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </div>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Status" />
+          <SelectTrigger className="w-[140px] h-9">
+            <SelectValue placeholder="ステータス" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="all">すべて</SelectItem>
             <SelectItem value="draft">下書き</SelectItem>
             <SelectItem value="scheduled">予約済み</SelectItem>
             <SelectItem value="posted">投稿済み</SelectItem>
@@ -368,7 +364,7 @@ export function SnsPage() {
         </Select>
         {postsApi.data && (
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-            {postsApi.data.total} posts
+            {postsApi.data.total}件
           </span>
         )}
       </div>
@@ -381,24 +377,23 @@ export function SnsPage() {
               <Clock className="h-4 w-4 text-muted-foreground" />
               投稿履歴
             </CardTitle>
-            {/* ビュー切替ボタン */}
             <div className="flex items-center rounded-md border p-0.5">
               <Button
                 variant={viewMode === 'list' ? 'secondary' : 'ghost'}
                 size="sm"
-                className="h-7 px-2.5 text-xs"
+                className="h-7 px-2.5 text-xs gap-1"
                 onClick={() => setViewMode('list')}
               >
-                <List className="h-3.5 w-3.5 mr-1" />
+                <List className="h-3.5 w-3.5" />
                 リスト
               </Button>
               <Button
                 variant={viewMode === 'calendar' ? 'secondary' : 'ghost'}
                 size="sm"
-                className="h-7 px-2.5 text-xs"
+                className="h-7 px-2.5 text-xs gap-1"
                 onClick={() => setViewMode('calendar')}
               >
-                <CalendarDays className="h-3.5 w-3.5 mr-1" />
+                <CalendarDays className="h-3.5 w-3.5" />
                 カレンダー
               </Button>
             </div>
@@ -406,7 +401,6 @@ export function SnsPage() {
         </CardHeader>
         <CardContent className={viewMode === 'list' ? 'p-0' : ''}>
           {viewMode === 'list' ? (
-            /* --- リストビュー --- */
             <>
               {postsApi.loading ? (
                 <div className="p-6 space-y-3">
@@ -418,9 +412,9 @@ export function SnsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30">
-                      <TableHead className="w-[120px]">Platform</TableHead>
+                      <TableHead className="w-[120px]">プラットフォーム</TableHead>
                       <TableHead>本文</TableHead>
-                      <TableHead className="w-[100px]">Status</TableHead>
+                      <TableHead className="w-[100px]">ステータス</TableHead>
                       <TableHead className="w-[160px]">日時</TableHead>
                       <TableHead className="w-[120px] text-right">操作</TableHead>
                     </TableRow>
@@ -475,17 +469,17 @@ export function SnsPage() {
                   </TableBody>
                 </Table>
               ) : (
-                <div className="flex flex-col items-center py-12 text-muted-foreground">
-                  <MessageSquare className="h-6 w-6 opacity-30 mb-3" />
-                  <p className="text-sm font-medium">投稿履歴がありません</p>
-                  <p className="text-xs mt-1">上のフォームから最初の投稿を作成しましょう</p>
+                <div className="p-0">
+                  <EmptyState
+                    icon={MessageSquare}
+                    title="投稿履歴がありません"
+                    description="上のフォームから最初の投稿を作成しましょう"
+                  />
                 </div>
               )}
             </>
           ) : (
-            /* --- カレンダービュー --- */
             <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-              {/* 左: カレンダーグリッド */}
               <div>
                 {calPostsApi.loading ? (
                   <Skeleton className="h-64 rounded-lg" />
@@ -501,7 +495,6 @@ export function SnsPage() {
                 )}
               </div>
 
-              {/* 右: 選択日の投稿リスト */}
               <div className="min-h-[200px]">
                 {selectedDate ? (
                   <>
@@ -543,7 +536,6 @@ export function SnsPage() {
   )
 }
 
-/** カレンダービュー用の投稿カード */
 function CalendarPostCard({
   post,
   onPublish,

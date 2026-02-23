@@ -28,6 +28,21 @@ function ThreadsIcon({ className }: { className?: string }) {
 
 export { XIcon, InstagramIcon, ThreadsIcon }
 
+// --- ステータスの日本語マッピング ---
+const statusLabelMap: Record<string, string> = {
+  active: '出品中',
+  sold: '売約済',
+  ended: '終了',
+  draft: '下書き',
+  pending: '保留',
+  paused: '一時停止',
+  purchased: '仕入済',
+  shipped: '発送済',
+  delivered: '配達済',
+  issue: '問題あり',
+  cancelled: 'キャンセル',
+}
+
 // --- 既存バッジ ---
 
 export function StockBadge({ status }: { status: string | null }) {
@@ -85,7 +100,8 @@ export function StatusBadge({ status }: { status: string }) {
     cancelled: { className: 'bg-red-500/10 text-red-700 border-red-200 dark:text-red-400' },
   }
   const m = map[status] || { className: '' }
-  return <Badge variant="outline" className={m.className}>{status}</Badge>
+  const label = statusLabelMap[status] || status
+  return <Badge variant="outline" className={m.className}>{label}</Badge>
 }
 
 // --- SNSバッジ ---

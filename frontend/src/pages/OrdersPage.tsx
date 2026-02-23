@@ -8,17 +8,9 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ClipboardList, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -29,6 +21,8 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformBadge, StatusBadge } from '@/components/shared/Badges'
+import { FilterBar, type FilterOption } from '@/components/shared/FilterBar'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { Pagination } from '@/components/shared/Pagination'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { useApi } from '@/hooks/use-api'
@@ -37,6 +31,14 @@ import { formatPrice, formatDate } from '@/lib/formatters'
 import type { Order } from '@/types'
 
 const PAGE_SIZE = 50
+
+// ステータスカンバン用の定義
+const statusFlow = [
+  { key: 'pending', label: '保留', color: 'bg-blue-500' },
+  { key: 'purchased', label: '仕入済', color: 'bg-indigo-500' },
+  { key: 'shipped', label: '発送済', color: 'bg-cyan-500' },
+  { key: 'delivered', label: '配達済', color: 'bg-emerald-500' },
+]
 
 export function OrdersPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -70,16 +72,27 @@ export function OrdersPage() {
     [platform, status, searchQuery, offset]
   )
 
+  const orders = data?.orders ?? []
+
+  // カンバンビュー用: ステータス別件数
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const o of orders) {
+      counts[o.status] = (counts[o.status] || 0) + 1
+    }
+    return counts
+  }, [orders])
+
   const columns = useMemo<ColumnDef<Order>[]>(() => [
     {
       accessorKey: 'platform',
-      header: 'Platform',
+      header: 'プラットフォーム',
       cell: ({ getValue }) => <PlatformBadge platform={getValue() as string} />,
       size: 120,
     },
     {
       accessorKey: 'platform_order_id',
-      header: 'Order ID',
+      header: '注文ID',
       cell: ({ getValue }) => {
         const v = getValue() as string
         return v ? <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{v}</span> : <span className="text-muted-foreground">-</span>
@@ -88,12 +101,12 @@ export function OrdersPage() {
     },
     {
       accessorKey: 'buyer_name',
-      header: 'Buyer',
+      header: '購入者',
       cell: ({ getValue }) => (getValue() as string) || <span className="text-muted-foreground">-</span>,
     },
     {
       accessorKey: 'buyer_country',
-      header: 'Country',
+      header: '国',
       cell: ({ getValue }) => {
         const c = getValue() as string
         return c ? (
@@ -106,39 +119,46 @@ export function OrdersPage() {
     },
     {
       accessorKey: 'sale_price_usd',
-      header: 'Revenue',
+      header: '売上',
       cell: ({ getValue }) => <span className="font-semibold tabular-nums">{formatPrice(getValue() as number | null, 'USD')}</span>,
       size: 100,
     },
     {
       accessorKey: 'profit_usd',
-      header: 'Profit',
-      cell: ({ getValue }) => {
-        const v = getValue() as number | null
+      header: '利益',
+      cell: ({ row }) => {
+        const v = row.original.profit_usd
+        const sale = row.original.sale_price_usd
         if (v == null) return <span className="text-muted-foreground">-</span>
+        const margin = sale && sale > 0 ? v / sale : 0
         return (
-          <span className={`font-bold tabular-nums ${v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
-            {v > 0 ? '+' : ''}{formatPrice(v, 'USD')}
-          </span>
+          <div>
+            <span className={`font-bold tabular-nums ${v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+              {v > 0 ? '+' : ''}{formatPrice(v, 'USD')}
+            </span>
+            {margin !== 0 && (
+              <span className={`ml-1 text-xs ${margin >= 0.25 ? 'text-emerald-500' : 'text-red-500'}`}>
+                ({(margin * 100).toFixed(0)}%)
+              </span>
+            )}
+          </div>
         )
       },
-      size: 100,
+      size: 120,
     },
     {
       accessorKey: 'status',
-      header: 'Status',
+      header: 'ステータス',
       cell: ({ getValue }) => <StatusBadge status={getValue() as string} />,
       size: 110,
     },
     {
       accessorKey: 'ordered_at',
-      header: 'Date',
+      header: '注文日',
       cell: ({ getValue }) => <span className="text-xs text-muted-foreground tabular-nums">{formatDate(getValue() as string)}</span>,
       size: 100,
     },
   ], [])
-
-  const orders = data?.orders ?? []
 
   const table = useReactTable({
     data: orders,
@@ -156,49 +176,75 @@ export function OrdersPage() {
     return s.desc ? <ArrowDown className="h-3 w-3 ml-1" /> : <ArrowUp className="h-3 w-3 ml-1" />
   }
 
+  const filters: FilterOption[] = [
+    {
+      id: 'platform',
+      label: 'プラットフォーム',
+      value: platform,
+      options: [
+        { value: ' ', label: 'すべて' },
+        { value: 'ebay', label: 'eBay' },
+        { value: 'base', label: 'BASE' },
+      ],
+      onChange: (v) => updateParams({ platform: v.trim(), offset: '' }),
+    },
+    {
+      id: 'status',
+      label: 'ステータス',
+      value: status,
+      options: [
+        { value: ' ', label: 'すべて' },
+        { value: 'pending', label: '保留' },
+        { value: 'purchased', label: '仕入済' },
+        { value: 'shipped', label: '発送済' },
+        { value: 'delivered', label: '配達済' },
+        { value: 'cancelled', label: 'キャンセル' },
+      ],
+      onChange: (v) => updateParams({ status: v.trim(), offset: '' }),
+    },
+  ]
+
+  const activeFilters: { label: string; onRemove: () => void }[] = []
+  if (platform) activeFilters.push({ label: `プラットフォーム: ${platform}`, onRemove: () => updateParams({ platform: '' }) })
+  if (status) activeFilters.push({ label: `ステータス: ${status}`, onRemove: () => updateParams({ status: '' }) })
+
   return (
     <div className="space-y-5">
-      {/* フィルター */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">Filter:</span>
-        <Select value={platform} onValueChange={(v) => updateParams({ platform: v.trim(), offset: '' })}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Platform" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="ebay">eBay</SelectItem>
-            <SelectItem value="base">BASE</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={status} onValueChange={(v) => updateParams({ status: v.trim(), offset: '' })}>
-          <SelectTrigger className="w-[160px] h-9">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value=" ">すべて</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="purchased">Purchased</SelectItem>
-            <SelectItem value="shipped">Shipped</SelectItem>
-            <SelectItem value="delivered">Delivered</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="検索..."
-            value={localSearch}
-            onChange={(e) => {
-              setLocalSearch(e.target.value)
-              updateParams({ search: e.target.value, offset: '' })
-            }}
-            className="h-9 w-[200px] pl-8"
-          />
+      {/* ステータスカンバン（視覚的進捗表示） */}
+      {orders.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {statusFlow.map((s) => {
+            const count = statusCounts[s.key] || 0
+            const isActive = status === s.key
+            return (
+              <Card
+                key={s.key}
+                className={`cursor-pointer transition-all hover:shadow-md ${isActive ? 'ring-2 ring-primary' : ''}`}
+                onClick={() => updateParams({ status: isActive ? '' : s.key, offset: '' })}
+              >
+                <CardContent className="flex items-center gap-3 p-4">
+                  <div className={`h-8 w-1 rounded-full ${s.color}`} />
+                  <div>
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                    <p className="text-xl font-bold tabular-nums">{count}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
-      </div>
+      )}
+
+      {/* フィルター */}
+      <FilterBar
+        filters={filters}
+        searchValue={localSearch}
+        onSearchChange={(v) => {
+          setLocalSearch(v)
+          updateParams({ search: v, offset: '' })
+        }}
+        activeFilters={activeFilters}
+      />
 
       {/* テーブル */}
       {loading ? (
@@ -235,12 +281,12 @@ export function OrdersPage() {
               <TableBody>
                 {table.getRowModel().rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={columns.length} className="text-center py-12">
-                      <div className="flex flex-col items-center text-muted-foreground">
-                        <ShoppingCart className="h-8 w-8 mb-2 opacity-30" />
-                        <p className="text-sm font-medium">注文がありません</p>
-                        <p className="text-xs mt-1">出品後、注文が入るとここに表示されます</p>
-                      </div>
+                    <TableCell colSpan={columns.length} className="p-0">
+                      <EmptyState
+                        icon={ClipboardList}
+                        title="注文がありません"
+                        description="出品後、注文が入るとここに表示されます"
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

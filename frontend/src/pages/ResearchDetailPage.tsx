@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Search, ArrowLeft, TrendingUp, DollarSign, Users, Package,
-  BarChart3, Loader2, ExternalLink, ShoppingCart,
+  BarChart3, Loader2, ExternalLink, ShoppingCart, Plus, ArrowRight,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, ResponsiveContainer } from 'recharts'
 import { toast } from 'sonner'
@@ -24,7 +24,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useApi } from '@/hooks/use-api'
-import { getResearchDetail, matchNetsea } from '@/lib/api'
+import { getResearchDetail, matchNetsea, importNetseaUrl } from '@/lib/api'
 import { formatPrice, formatMargin } from '@/lib/formatters'
 import type { ResearchMatch } from '@/types'
 
@@ -34,6 +34,7 @@ export function ResearchDetailPage() {
   const [supplierIds, setSupplierIds] = useState('79841')
   const [matching, setMatching] = useState(false)
   const [matchResults, setMatchResults] = useState<ResearchMatch[]>([])
+  const [registeringId, setRegisteringId] = useState<string | null>(null)
 
   const { data, loading, error, refetch } = useApi(
     () => getResearchDetail(Number(id)),
@@ -55,6 +56,24 @@ export function ResearchDetailPage() {
       toast.error((e as Error).message)
     } finally {
       setMatching(false)
+    }
+  }
+
+  // 商品登録ハンドラー
+  async function handleRegisterProduct(netseaProductId: string) {
+    setRegisteringId(netseaProductId)
+    try {
+      const url = `https://www.netsea.jp/shop/${netseaProductId}`
+      const res = await importNetseaUrl(url)
+      toast.success(res.message)
+      // 商品詳細ページへ遷移
+      if (res.product_id) {
+        navigate(`/products/${res.product_id}`)
+      }
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setRegisteringId(null)
     }
   }
 
@@ -103,9 +122,24 @@ export function ResearchDetailPage() {
               : 'ml-auto bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
           }
         >
-          {session.status}
+          {session.status === 'completed' ? '完了' : session.status}
         </Badge>
       </div>
+
+      {/* ワークフロー次ステップガイド */}
+      {allMatches.length > 0 && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">
+              <ArrowRight className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">次のステップ</p>
+              <p className="text-xs text-muted-foreground">マッチング結果から気になる商品を「商品登録」して出品準備を始めましょう</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPIカード */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -169,7 +203,7 @@ export function ResearchDetailPage() {
                 />
                 <Bar
                   dataKey="count"
-                  fill="hsl(var(--chart-1, 220 70% 50%))"
+                  fill="oklch(0.55 0.18 260)"
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>
@@ -245,7 +279,7 @@ export function ResearchDetailPage() {
           <div className="flex items-end gap-3">
             <div className="flex-1 space-y-1.5">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Supplier IDs（カンマ区切り）
+                サプライヤーID（カンマ区切り）
               </Label>
               <Input
                 value={supplierIds}
@@ -282,6 +316,7 @@ export function ResearchDetailPage() {
                     <TableHead className="text-right w-[80px]">利益率</TableHead>
                     <TableHead className="text-right w-[80px]">スコア</TableHead>
                     <TableHead className="w-[80px]">DS</TableHead>
+                    <TableHead className="w-[100px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -326,6 +361,25 @@ export function ResearchDetailPage() {
                             <Badge variant="outline" className="text-[10px] px-1 py-0">IMG</Badge>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1"
+                          disabled={!m.netsea_product_id || registeringId === m.netsea_product_id}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (m.netsea_product_id) handleRegisterProduct(m.netsea_product_id)
+                          }}
+                        >
+                          {registeringId === m.netsea_product_id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Plus className="h-3 w-3" />
+                          )}
+                          登録
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}

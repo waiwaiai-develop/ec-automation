@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { useApi } from '@/hooks/use-api'
 import { getResearchHistory, analyzeKeyword } from '@/lib/api'
 import { formatPrice } from '@/lib/formatters'
@@ -75,7 +76,7 @@ export function ResearchPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Keyword</Label>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">キーワード</Label>
               <Input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
@@ -86,7 +87,7 @@ export function ResearchPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sample Size</Label>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">サンプル数</Label>
               <Select value={limit} onValueChange={setLimit}>
                 <SelectTrigger className="h-10">
                   <SelectValue />
@@ -130,12 +131,15 @@ export function ResearchPage() {
               <Clock className="h-4 w-4 text-muted-foreground" />
               リサーチ履歴
             </CardTitle>
-            <Input
-              value={filterKeyword}
-              onChange={(e) => setFilterKeyword(e.target.value)}
-              placeholder="キーワードで絞り込み..."
-              className="h-8 w-[220px] text-xs"
-            />
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                value={filterKeyword}
+                onChange={(e) => setFilterKeyword(e.target.value)}
+                placeholder="キーワードで絞り込み..."
+                className="h-8 w-[220px] text-xs pl-7"
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -165,7 +169,7 @@ export function ResearchPage() {
                       <Users className="h-3 w-3" />日本セラー
                     </span>
                   </TableHead>
-                  <TableHead className="w-[100px]">Status</TableHead>
+                  <TableHead className="w-[100px]">ステータス</TableHead>
                   <TableHead className="w-[140px]">日時</TableHead>
                   <TableHead className="w-[80px]"></TableHead>
                 </TableRow>
@@ -198,7 +202,7 @@ export function ResearchPage() {
                               : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
                         }
                       >
-                        {s.status}
+                        {s.status === 'completed' ? '完了' : s.status === 'failed' ? '失敗' : '処理中'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
@@ -214,11 +218,11 @@ export function ResearchPage() {
               </TableBody>
             </Table>
           ) : (
-            <div className="flex flex-col items-center py-12 text-muted-foreground">
-              <Search className="h-6 w-6 opacity-30 mb-3" />
-              <p className="text-sm font-medium">リサーチ履歴がありません</p>
-              <p className="text-xs mt-1">上のフォームからキーワードを入力して分析を始めましょう</p>
-            </div>
+            <EmptyState
+              icon={Search}
+              title="リサーチ履歴がありません"
+              description="上のフォームからキーワードを入力して分析を始めましょう"
+            />
           )}
         </CardContent>
       </Card>
